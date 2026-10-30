@@ -14,7 +14,11 @@ identity belongs to.
    `POST /internal/v1/users/federated`. The backend finds the user, or creates it on first sign-in, and returns `{id, email}`.
    It refuses unverified emails (403) and an email that belongs to another user (409).
 5. The session's principal becomes the Kanban user id, the consent screen is shown (Claude only), and a code is issued.
-6. The client exchanges the code at `/oauth2/token` for an access token (JWT, 1 hour) and a refresh token.
+6. The client exchanges the code at `/oauth2/token` for an access token (JWT).
+   - **Claude connector:** a confidential client (client secret + PKCE). Access token 1 hour, refresh token 30 days, rotated on use.
+   - **Kanban web UI:** a public client (PKCE, no secret). Spring Authorization Server never issues refresh tokens to public
+     clients, so the UI gets a longer access token (default 8 hours) and signs in again when it expires. That is silent while the
+     auth server's own session (7 days) is valid.
 
 Access token claims: `sub` = user id, `uid` = user id, `email`, `iss`, `aud`, `exp`, `jti`, `scope`. The signing key is
 asymmetric; services verify tokens with the public keys at `/oauth2/jwks`.
@@ -47,14 +51,20 @@ and logs a warning; tokens then stop validating after a restart.
     AUTH_JWK_PRIVATE_KEY_FILE=/path/auth-private.pem
     AUTH_JWK_PUBLIC_KEY_FILE=/path/auth-public.pem
 
+Claude connector secret (generate one with `openssl rand -base64 36`; you enter the same value in the connector's advanced settings):
+
+    AUTH_CLAUDE_CLIENT_SECRET=...
+
 Optional, for the web UI (leave empty until the UI signs in through this server):
 
     AUTH_WEB_CLIENT_ID=kanban-web
     AUTH_WEB_REDIRECT_URIS=https://pages.ikoyski.top/<callback page>
     AUTH_CORS_ALLOWED_ORIGINS=https://pages.ikoyski.top
+    AUTH_LOGOUT_REDIRECTS=https://pages.ikoyski.top/kanban/kanban.html
+    AUTH_WEB_ACCESS_TOKEN_TTL=PT8H
 
 The app refuses to start without the Google settings or `AUTH_BACKEND_INTERNAL_KEY`. Do not set a servlet context path:
-the issuer must be a bare origin. Create the `authdb` database and role first; `schema.sql` creates the tables.
+the issuer must be a bare origin. Create the `authdb` database and role first; Flyway (`db/migration/V1__oauth2_schema.sql`) creates the tables.
 
 ## 4. Run and check
 
@@ -77,7 +87,13 @@ Add a registration under `spring.security.oauth2.client.registration`, one branc
 provider name to `InternalUserService.ALLOWED_PROVIDERS` in the backend. No schema change. Microsoft and GitHub need care
 with email: see the comments in `IdentityNormalizer`.
 
-## 7. Still to do elsewhere
+## 7. Clients are config-driven
+
+`ClientSeeder` creates or updates the clients on every start, so changing a redirect URI, the secret or a lifetime is a config
+change plus a restart. Do not edit `oauth2_registered_client` by hand. `GET /logout?redirect=<url>` signs the person out of this
+server and returns them to an allow-listed URL.
+
+## 8. Still to do elsewhere
 
 - Gateway: verify tokens from this issuer (JWKS) in `AuthenticationFilter`, next to the existing login tokens, and read
   `uid` and `email` from them.

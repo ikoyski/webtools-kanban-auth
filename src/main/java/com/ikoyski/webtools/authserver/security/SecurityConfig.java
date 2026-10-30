@@ -10,6 +10,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
 
 @Configuration
@@ -42,12 +43,20 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http,
-                                                          FederatedLoginSuccessHandler successHandler) throws Exception {
+                                                          FederatedLoginSuccessHandler successHandler,
+                                                          LogoutRedirectHandler logoutHandler) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .anyRequest().authenticated())
-                .oauth2Login(login -> login.successHandler(successHandler));
+                .oauth2Login(login -> login.successHandler(successHandler))
+                // GET /logout?redirect=<allow-listed url> ends this server's sign-in session, so "sign out" in an
+                // app really signs the person out instead of silently signing them back in.
+                .logout(logout -> logout
+                        .logoutRequestMatcher(new AntPathRequestMatcher("/logout"))
+                        .logoutSuccessHandler(logoutHandler)
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID"));
         return http.build();
     }
 }
