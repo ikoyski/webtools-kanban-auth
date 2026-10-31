@@ -7,11 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
 import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedIdentity;
 
@@ -50,7 +52,29 @@ class IdentityNormalizerTest {
     }
 
     @Test
+    void githubIdentityIsNormalized() {
+        Map<String, Object> attributes = Map.of(
+                "id", 12345678L,
+                "login", "ann-github",
+                "name", "Ann Example",
+                "email", "ann@example.com",
+                "email_verified", true,
+                "avatar_url", "https://avatars.example.com/ann.png");
+        DefaultOAuth2User githubUser = new DefaultOAuth2User(
+                List.of(new SimpleGrantedAuthority("ROLE_USER")), attributes, "id");
+
+        FederatedIdentity identity = normalizer.normalize("github", githubUser);
+
+        assertEquals("GITHUB", identity.provider());
+        assertEquals("12345678", identity.subject());
+        assertEquals("ann@example.com", identity.email());
+        assertTrue(identity.emailVerified());
+        assertEquals("Ann Example", identity.displayName());
+        assertEquals("https://avatars.example.com/ann.png", identity.avatarUrl());
+    }
+
+    @Test
     void unknownProviderIsRejected() {
-        assertThrows(IllegalArgumentException.class, () -> normalizer.normalize("github", googleUser(true)));
+        assertThrows(IllegalArgumentException.class, () -> normalizer.normalize("unsupported", googleUser(true)));
     }
 }
