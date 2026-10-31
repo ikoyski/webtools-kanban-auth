@@ -24,6 +24,7 @@ public class ClientSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
     public static final String MCP_RESOURCE_SETTING = "mcp.resource";
+    public static final String GEMINI_DYNAMIC_REDIRECT_SETTING = "gemini.dynamic-redirect-uri";
 
     private final RegisteredClientRepository clients;
     private final PasswordEncoder passwordEncoder;
@@ -77,8 +78,11 @@ public class ClientSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         seedClaude();
         seedWeb();
-        seedMcpClient(chatgptClientId, chatgptClientSecret, "ChatGPT MCP connector", chatgptRedirectUris);
-        seedMcpClient(geminiClientId, geminiClientSecret, "Gemini MCP connector", geminiRedirectUris);
+        seedMcpClient(chatgptClientId, chatgptClientSecret, "ChatGPT MCP connector",
+                chatgptRedirectUris, false, false);
+        // Gemini creates a per-user callback URL. Its exact URL is validated at authorization time.
+        seedMcpClient(geminiClientId, geminiClientSecret, "Gemini MCP connector",
+                geminiRedirectUris, true, true);
     }
 
     private void seedClaude() {
@@ -131,9 +135,10 @@ public class ClientSeeder implements ApplicationRunner {
         save(builder.build());
     }
 
-    private void seedMcpClient(String clientId, String clientSecret, String clientName, List<String> redirectUris) {
+    private void seedMcpClient(String clientId, String clientSecret, String clientName, List<String> redirectUris,
+                               boolean allowEmptyRedirectUris, boolean geminiDynamicRedirect) {
         List<String> uris = clean(redirectUris);
-        if (isBlank(clientId) || uris.isEmpty()) {
+        if (isBlank(clientId) || (!allowEmptyRedirectUris && uris.isEmpty())) {
             return;
         }
         if (isBlank(mcpResource)) {
@@ -148,7 +153,7 @@ public class ClientSeeder implements ApplicationRunner {
         RegisteredClient.Builder builder = base(clientId, clientName, uris)
                 .scope("kanban.read")
                 .scope("kanban.write")
-                .clientSettings(mcpClientSettings(true))
+                .clientSettings(mcpClientSettings(true, geminiDynamicRedirect))
                 .tokenSettings(confidential
                         ? tokenSettings.refreshTokenTimeToLive(Duration.ofDays(30)).reuseRefreshTokens(false).build()
                         : tokenSettings.build());
@@ -166,11 +171,18 @@ public class ClientSeeder implements ApplicationRunner {
     }
 
     private ClientSettings mcpClientSettings(boolean requireConsent) {
+        return mcpClientSettings(requireConsent, false);
+    }
+
+    private ClientSettings mcpClientSettings(boolean requireConsent, boolean geminiDynamicRedirect) {
         ClientSettings.Builder builder = ClientSettings.builder()
                 .requireProofKey(true)
                 .requireAuthorizationConsent(requireConsent);
         if (!isBlank(mcpResource)) {
             builder.setting(MCP_RESOURCE_SETTING, mcpResource);
+        }
+        if (geminiDynamicRedirect) {
+            builder.setting(GEMINI_DYNAMIC_REDIRECT_SETTING, true);
         }
         return builder.build();
     }
