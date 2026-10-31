@@ -135,7 +135,7 @@ Generate and securely store an RSA key pair using an approved secret-management 
 
 ## Run and verify
 
-Requirements: JDK 21, Maven, reachable PostgreSQL database, Config Server configuration, identity-provider credentials, backend internal integration and persistent signing keys.
+Requirements: JDK 21, Maven, reachable PostgreSQL database, Config Server configuration, identity-provider credentials and persistent signing keys.
 
 ```bash
 ./mvnw clean verify
