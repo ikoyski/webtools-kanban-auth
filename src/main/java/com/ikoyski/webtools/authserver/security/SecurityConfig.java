@@ -77,7 +77,8 @@ public class SecurityConfig {
 
     /**
      * Everything else: sign-in with the configured identity providers (Google and GitHub) and health.
-     * With oauth2Login and no form login, Spring generates the /login page listing each provider.
+     * The custom /login page is served from static/login.html; provider links still use Spring's
+     * standard /oauth2/authorization/{registrationId} endpoints.
      */
     @Bean
     @Order(2)
@@ -87,9 +88,10 @@ public class SecurityConfig {
                                                           GitHubOAuth2UserService githubOAuth2UserService) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/error").permitAll()
+                        .requestMatchers("/actuator/health", "/error", "/login", "/login.html").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(login -> login
+                        .loginPage("/login")
                         .userInfoEndpoint(userInfo -> userInfo.userService(githubOAuth2UserService))
                         .successHandler(successHandler))
                 // GET /logout?redirect=<allow-listed url> ends this server's sign-in session, so "sign out" in an
