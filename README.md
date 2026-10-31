@@ -20,13 +20,13 @@ The authorization server serves its provider-selection UI from `src/main/resourc
 
 The page is presentation only. Provider registration, callback URLs, verified-identity handling, central identity resolution, OAuth authorization and token issuance remain server-side.
 
-The same login session is shared across registered clients at this issuer (SSO). The identity server authenticates people; it does not grant Kanban board roles, Ipon permissions or other application permissions. Resource servers remain responsible for their own authorization.
+The same login session is shared across registered clients at this issuer (SSO). The identity server authenticates people; it does not grant Kanban board roles, Ipon permissions or other application permissions. Resource servers remain responsible for their own authorization. OIDC clients request `openid`; `profile` and/or `email` are requested only when those claims are needed. ID tokens contain only claims covered by the granted standard scopes; the default UserInfo endpoint derives its claims from the ID token.
 
 ## Token claims and keys
 
 The stable central identity UUID is the token subject (`sub`) and is also emitted as the legacy `uid` claim so the current gateway can migrate without breaking. Tokens include `email` and, when available, `name` and `picture`. OIDC ID tokens include standard `email`, `email_verified`, `name` and `picture` claims for the requested scopes.
 
-Each first-party application client can be assigned its own API resource URI. That URI is emitted as the access token `aud`; MCP clients continue to receive the configured MCP resource audience. Configure an exact audience for every resource server and reject tokens intended for other applications.
+Each first-party application client can be assigned its own API resource URI. That URI is emitted as the access token `aud`; ordinary browser clients receive only their own API audience. Kanban MCP clients receive both the MCP resource URI and the backing Kanban API resource URI because the MCP service forwards the user's delegated token to that API. Configure exact audiences for every resource server and reject tokens that do not include the intended resource.
 
 JWTs are signed asymmetrically. Resource servers validate signatures using the public keys published at:
 
@@ -54,7 +54,7 @@ Clients are seeded/upserted by `ClientSeeder` at application startup from Config
 | Kanban web | Browser application | Public OIDC client with PKCE |
 | Additional first-party apps | Configured browser applications | One public OIDC client per app, PKCE and app-specific API audience |
 
-MCP clients are assigned the configured MCP resource URI. The access-token customizer copies it into `aud`. The Kanban web client has a separate `auth.client.web.resource-uri` setting. Additional first-party browser clients are configured under `auth.clients.applications`; each requires its own exact redirect URI list, scopes and API `resource-uri`.
+MCP clients are assigned the configured MCP resource URI. The access-token customizer includes it in `aud` and also includes the backing Kanban API resource URI. Set `auth.client.mcp.backend-resource` explicitly, or it defaults to `auth.client.web.resource-uri` so that the MCP service can forward the same user's token through the gateway to the Kanban API. The Kanban web client itself receives only its API audience. Additional first-party browser clients are configured under `auth.clients.applications`; each requires its own exact redirect URI list, scopes and API `resource-uri`.
 
 Optional ChatGPT is seeded only when its client ID and at least one redirect URI are configured. Gemini is seeded when its client ID and MCP resource are configured; its redirect-uris list may be empty because Gemini supplies a user-bound callback at authorization time. A configured secret enables confidential-client authentication and rotating refresh tokens where supported by the client configuration. Public ChatGPT/Gemini clients do not receive refresh-token grants. Provider behavior and supported grants must be verified against the exact product integration.
 
@@ -81,6 +81,7 @@ auth:
       resource-uri: https://api.example.com/kanban-backend
     mcp:
       resource: https://api.ikoyski.top/kanban-mcp/mcp
+      backend-resource: https://api.ikoyski.top/kanban-backend
     claude:
       # Existing Claude client configuration
     chatgpt:
@@ -92,6 +93,14 @@ auth:
       client-id: kanban-gemini
       client-secret: ${AUTH_GEMINI_CLIENT_SECRET:}
       redirect-uris: [] # Gemini supplies a per-user callback; validated by the auth server
+  clients:
+    applications:
+      - client-id: ipon-web
+        name: Ipon web
+        redirect-uris:
+          - https://ipon.example.com/oauth/callback
+        scopes: [openid, profile, email, ipon.read, ipon.write]
+        resource-uri: https://api.example.com/ipon
 ```
 
 The MCP resource URI must match the audience expected by the MCP resource server and the gateway's protected-resource configuration. It is a configured resource binding; the current implementation does not dynamically validate arbitrary RFC 8707 `resource` request parameters. Do not describe this as full dynamic RFC 8707 resource-indicator support.
@@ -158,6 +167,8 @@ The service is deployed separately from the API gateway. Restrict and rate-limit
 - Require exact audience and application-specific scopes at every resource server.
 - Keep OIDC enabled and retain the stable central UUID as the subject.
 - Keep client seeding idempotent and config-driven.
+- Keep CORS allowed origins and logout redirect URLs as explicit lists; add each first-party app's exact origin and signed-out landing URL when onboarding it.
+- For OIDC, include `openid`; request standard `profile` / `email` scopes only when needed and validate ID tokens in the client.
 - Update README and `CLAUDE.md` when client registration, claims, login, key management or deployment behavior changes.
 - Run `./mvnw clean verify`; do not claim live provider flows were tested unless they were actually executed.
 
