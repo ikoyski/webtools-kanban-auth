@@ -41,7 +41,7 @@ public class GitHubOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                 .baseUrl("https://api.github.com")
                 .requestFactory(requestFactory)
                 .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
+                .defaultHeader("X-GitHub-Api-Version", "2026-03-10")
                 .build();
     }
 
