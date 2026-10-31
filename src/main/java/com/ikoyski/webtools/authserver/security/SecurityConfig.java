@@ -31,7 +31,7 @@ public class SecurityConfig {
     /**
      * Protocol endpoints: /oauth2/authorize, /oauth2/token, /oauth2/jwks,
      * /.well-known/oauth-authorization-server, etc. Browsers that are not signed in are sent
-     * to /login. OIDC and dynamic client registration are deliberately NOT enabled, so there is
+     * to /login. OIDC is enabled for standardized identity tokens and UserInfo; dynamic client registration remains disabled, so there is
      * no open registration endpoint; clients are pre-registered (see ClientSeeder).
      * CORS is enabled so a browser app can call the token endpoint (see CorsConfig).
      */
@@ -44,6 +44,7 @@ public class SecurityConfig {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
                 http.getConfigurer(OAuth2AuthorizationServerConfigurer.class);
+        authorizationServerConfigurer.oidc(Customizer.withDefaults());
         authorizationServerConfigurer.authorizationEndpoint(endpoint ->
                 endpoint.authenticationProviders(configureAuthorizationCodeValidator(geminiRedirectUriValidator)));
 

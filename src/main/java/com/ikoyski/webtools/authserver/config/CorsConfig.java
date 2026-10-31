@@ -30,6 +30,7 @@ public class CorsConfig {
             config.setMaxAge(3600L);
             source.registerCorsConfiguration("/oauth2/**", config);
             source.registerCorsConfiguration("/.well-known/**", config);
+            source.registerCorsConfiguration("/userinfo", config);
         }
         return source;
     }

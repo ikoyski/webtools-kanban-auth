@@ -24,6 +24,8 @@ public class ClientSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
     public static final String MCP_RESOURCE_SETTING = "mcp.resource";
+    public static final String MCP_BACKEND_RESOURCE_SETTING = "mcp.backend-resource";
+    public static final String RESOURCE_URI_SETTING = "resource.uri";
     public static final String GEMINI_DYNAMIC_REDIRECT_SETTING = "gemini.dynamic-redirect-uri";
     private static final String GEMINI_REDIRECT_URI_PLACEHOLDER =
             "https://oauth-redirect.googleusercontent.com/r/__dynamic_callback_placeholder__";
@@ -36,7 +38,10 @@ public class ClientSeeder implements ApplicationRunner {
     private final String webClientId;
     private final List<String> webRedirectUris;
     private final Duration webAccessTokenTtl;
+    private final String webResourceUri;
+    private final ApplicationClientProperties applicationClients;
     private final String mcpResource;
+    private final String mcpBackendResource;
     private final String chatgptClientId;
     private final String chatgptClientSecret;
     private final List<String> chatgptRedirectUris;
@@ -52,7 +57,10 @@ public class ClientSeeder implements ApplicationRunner {
                         @Value("${auth.client.web.client-id:}") String webClientId,
                         @Value("${auth.client.web.redirect-uris:}") List<String> webRedirectUris,
                         @Value("${auth.client.web.access-token-ttl:PT8H}") Duration webAccessTokenTtl,
+                        @Value("${auth.client.web.resource-uri:}") String webResourceUri,
+                        ApplicationClientProperties applicationClients,
                         @Value("${auth.client.mcp.resource:}") String mcpResource,
+                        @Value("${auth.client.mcp.backend-resource:}") String mcpBackendResource,
                         @Value("${auth.client.chatgpt.client-id:}") String chatgptClientId,
                         @Value("${auth.client.chatgpt.client-secret:}") String chatgptClientSecret,
                         @Value("${auth.client.chatgpt.redirect-uris:}") List<String> chatgptRedirectUris,
@@ -67,7 +75,11 @@ public class ClientSeeder implements ApplicationRunner {
         this.webClientId = webClientId;
         this.webRedirectUris = webRedirectUris;
         this.webAccessTokenTtl = webAccessTokenTtl;
+        this.webResourceUri = webResourceUri == null ? "" : webResourceUri.trim();
+        this.applicationClients = applicationClients;
         this.mcpResource = mcpResource == null ? "" : mcpResource.trim();
+        this.mcpBackendResource = mcpBackendResource == null || mcpBackendResource.isBlank()
+                ? this.webResourceUri : mcpBackendResource.trim();
         this.chatgptClientId = chatgptClientId;
         this.chatgptClientSecret = chatgptClientSecret;
         this.chatgptRedirectUris = chatgptRedirectUris;
@@ -80,6 +92,7 @@ public class ClientSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         seedClaude();
         seedWeb();
+        seedConfiguredApplications();
         seedMcpClient(chatgptClientId, chatgptClientSecret, "ChatGPT MCP connector",
                 chatgptRedirectUris, false, false);
         // Gemini creates a per-user callback URL. Its exact URL is validated at authorization time.
@@ -127,14 +140,55 @@ public class ClientSeeder implements ApplicationRunner {
         }
         RegisteredClient.Builder builder = base(webClientId, "Kanban web UI", uris)
                 .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+                .scope("openid")
+                .scope("profile")
+                .scope("email")
                 .scope("kanban.read")
-                .scope("kanban.write")
-                .clientSettings(ClientSettings.builder().requireProofKey(true).requireAuthorizationConsent(false).build())
+                .scope("kanban.write");
+        ClientSettings.Builder settings = ClientSettings.builder()
+                .requireProofKey(true)
+                .requireAuthorizationConsent(false);
+        if (!webResourceUri.isBlank()) {
+            settings.setting(RESOURCE_URI_SETTING, webResourceUri);
+        }
+        builder.clientSettings(settings.build())
                 .tokenSettings(TokenSettings.builder()
                         .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
                         .accessTokenTimeToLive(webAccessTokenTtl)
                         .build());
         save(builder.build());
+    }
+
+    /**
+     * Registers additional first-party browser applications from Config Server. Each application
+     * gets its own client ID, exact callback allow-list, scopes and API audience.
+     */
+    private void seedConfiguredApplications() {
+        for (ApplicationClientProperties.ApplicationClient application : applicationClients.getApplications()) {
+            String clientId = application.getClientId() == null ? "" : application.getClientId().trim();
+            List<String> uris = clean(application.getRedirectUris());
+            List<String> scopes = clean(application.getScopes());
+            String resourceUri = application.getResourceUri() == null ? "" : application.getResourceUri().trim();
+            if (isBlank(clientId) || isBlank(application.getName()) || uris.isEmpty() || scopes.isEmpty()
+                    || isBlank(resourceUri)) {
+                log.warn("Skipping incomplete auth.clients application client '{}': client-id, name, redirect-uris, scopes and resource-uri are required",
+                        clientId);
+                continue;
+            }
+            RegisteredClient.Builder builder = base(clientId, application.getName().trim(), uris)
+                    .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+                    .clientSettings(ClientSettings.builder()
+                            .requireProofKey(true)
+                            .requireAuthorizationConsent(false)
+                            .setting(RESOURCE_URI_SETTING, resourceUri)
+                            .build())
+                    .tokenSettings(TokenSettings.builder()
+                            .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
+                            .accessTokenTimeToLive(Duration.ofHours(8))
+                            .build());
+            scopes.forEach(builder::scope);
+            save(builder.build());
+        }
     }
 
     private void seedMcpClient(String clientId, String clientSecret, String clientName, List<String> redirectUris,
@@ -186,6 +240,9 @@ public class ClientSeeder implements ApplicationRunner {
                 .requireAuthorizationConsent(requireConsent);
         if (!isBlank(mcpResource)) {
             builder.setting(MCP_RESOURCE_SETTING, mcpResource);
+        }
+        if (!mcpBackendResource.isBlank()) {
+            builder.setting(MCP_BACKEND_RESOURCE_SETTING, mcpBackendResource);
         }
         if (geminiDynamicRedirect) {
             builder.setting(GEMINI_DYNAMIC_REDIRECT_SETTING, true);

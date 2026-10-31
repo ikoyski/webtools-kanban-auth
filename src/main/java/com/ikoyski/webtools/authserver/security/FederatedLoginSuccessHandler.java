@@ -19,9 +19,9 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 
-import com.ikoyski.webtools.authserver.client.BackendUserClient;
-import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedIdentity;
-import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedResult;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService.FederatedIdentity;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService.FederatedResult;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,9 +29,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 /**
- * Runs after the configured identity provider has authenticated the person. It asks the backend which
- * Kanban user that identity is (creating it on first sign-in) and then REPLACES the provider's
- * authentication with a plain one whose principal name is the Kanban user id. That keeps the stored
+ * Runs after the configured identity provider has authenticated the person. It resolves the provider subject to a central platform identity (creating it on first sign-in) and then
+ * REPLACES the provider's authentication with a plain one whose principal name is the central identity ID. That keeps the stored
  * authorization small and serializable, and makes the token "sub" the user id.
  * The browser is then sent back to the saved /oauth2/authorize request.
  */
@@ -40,14 +39,14 @@ public class FederatedLoginSuccessHandler implements AuthenticationSuccessHandle
 
     private static final Logger log = LoggerFactory.getLogger(FederatedLoginSuccessHandler.class);
 
-    private final BackendUserClient backend;
+    private final CentralIdentityService identities;
     private final IdentityNormalizer normalizer;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
     private final SavedRequestAwareAuthenticationSuccessHandler redirectToSavedRequest =
             new SavedRequestAwareAuthenticationSuccessHandler();
 
-    public FederatedLoginSuccessHandler(BackendUserClient backend, IdentityNormalizer normalizer) {
-        this.backend = backend;
+    public FederatedLoginSuccessHandler(CentralIdentityService identities, IdentityNormalizer normalizer) {
+        this.identities = identities;
         this.normalizer = normalizer;
     }
 
@@ -63,32 +62,33 @@ public class FederatedLoginSuccessHandler implements AuthenticationSuccessHandle
         try {
             FederatedIdentity identity = normalizer.normalize(
                     token.getAuthorizedClientRegistrationId(), token.getPrincipal());
-            result = backend.federated(identity);
+            result = identities.federated(identity);
         } catch (IllegalArgumentException e) {
             log.warn("Sign-in rejected: {}", e.getMessage());
             reject(request, response, 403, "This sign-in method is not enabled.");
             return;
         } catch (RuntimeException e) {
-            log.error("Could not reach the identity service", e);
+            log.error("Could not resolve the central identity", e);
             reject(request, response, 503, "Sign-in is temporarily unavailable. Please try again in a moment.");
             return;
         }
 
         switch (result.status()) {
-            case OK -> signIn(request, response, result.user());
+            case OK -> signIn(request, response, result.identity());
+            case INVALID -> reject(request, response, 400, "The identity provider returned an incomplete profile. Please try again.");
             case EMAIL_NOT_VERIFIED -> reject(request, response, 403,
                     "Your account's email address has not been verified, so it cannot be used to sign in.");
             case EMAIL_IN_USE -> reject(request, response, 409,
-                    "An account with this email already exists under a different sign-in method. "
-                            + "Sign in the way you did originally.");
+                    "This verified email is already associated with another sign-in identity. "
+                            + "Account linking must be completed from an authenticated session.");
             case REJECTED -> reject(request, response, 403, "This account cannot be used to sign in.");
         }
     }
 
     private void signIn(HttpServletRequest request, HttpServletResponse response,
-                        BackendUserClient.InternalUser user) throws IOException, ServletException {
+                        CentralIdentityService.Identity user) throws IOException, ServletException {
         List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-        User principal = new User(user.id(), "", authorities);   // principal name = Kanban user id
+        User principal = new User(user.id(), "", authorities);   // principal name = central identity ID
         Authentication authenticated = UsernamePasswordAuthenticationToken.authenticated(principal, null, authorities);
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();

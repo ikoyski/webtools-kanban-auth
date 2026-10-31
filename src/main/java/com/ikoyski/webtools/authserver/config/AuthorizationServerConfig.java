@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -23,7 +24,7 @@ import org.springframework.security.oauth2.server.authorization.settings.Authori
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 
-import com.ikoyski.webtools.authserver.client.BackendUserClient;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService;
 
 @Configuration
 public class AuthorizationServerConfig {
@@ -56,36 +57,65 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * All access tokens retain the Kanban uid/email claims. Clients registered for the MCP resource
-     * additionally receive that exact resource URI as their JWT audience. The browser client is
-     * deliberately not assigned the MCP audience.
+     * Access tokens carry the stable central identity ID in the compatibility uid claim. First-party app
+     * clients receive their own resource audience; Kanban MCP clients additionally receive the Kanban API
+     * audience because the MCP service forwards the delegated token to that API. OIDC ID tokens carry scoped
+     * standard profile claims.
      */
     @Bean
-    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(BackendUserClient backend) {
+    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(CentralIdentityService identities) {
         return context -> {
-            if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+            boolean accessToken = OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType());
+            boolean idToken = OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue());
+            if (!accessToken && !idToken) {
                 return;
             }
 
-            Object configuredResource = context.getRegisteredClient().getClientSettings()
-                    .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
-            if (configuredResource instanceof String resourceUri && !resourceUri.isBlank()) {
-                context.getClaims().audience(List.of(resourceUri));
-            }
-
             Authentication principal = context.getPrincipal();
-            BackendUserClient.InternalUser user;
+            CentralIdentityService.Identity user;
             try {
-                user = backend.lookupById(principal.getName()).orElse(null);
+                user = identities.findById(principal.getName()).orElse(null);
             } catch (RuntimeException e) {
                 throw new OAuth2AuthenticationException(
-                        new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "User lookup failed", null), e);
+                        new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "Central identity lookup failed", null), e);
             }
-            if (user == null) {
+            if (user == null || !user.active()) {
                 throw new OAuth2AuthenticationException(
-                        new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "User no longer exists", null));
+                        new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "Central identity no longer exists", null));
             }
-            context.getClaims().claim("uid", user.id()).claim("email", user.email());
+
+            if (accessToken) {
+                Object resource = context.getRegisteredClient().getClientSettings()
+                        .getSetting(ClientSeeder.RESOURCE_URI_SETTING);
+                if (!(resource instanceof String)) {
+                    resource = context.getRegisteredClient().getClientSettings()
+                            .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
+                }
+                if (resource instanceof String resourceUri && !resourceUri.isBlank()) {
+                    List<String> audiences = new java.util.ArrayList<>();
+                    audiences.add(resourceUri);
+                    Object additionalResource = context.getRegisteredClient().getClientSettings()
+                            .getSetting(ClientSeeder.MCP_BACKEND_RESOURCE_SETTING);
+                    if (additionalResource instanceof String additionalUri && !additionalUri.isBlank()
+                            && !audiences.contains(additionalUri)) {
+                        audiences.add(additionalUri);
+                    }
+                    context.getClaims().audience(audiences);
+                }
+                // uid remains for compatibility with existing gateways; it is now the central identity ID.
+                context.getClaims().claim("uid", user.id()).claim("email", user.email());
+                if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
+                if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+            } else {
+                // OIDC profile claims are returned only when the matching standard scope was granted.
+                if (context.getAuthorizedScopes().contains("email")) {
+                    context.getClaims().claim("email", user.email()).claim("email_verified", true);
+                }
+                if (context.getAuthorizedScopes().contains("profile")) {
+                    if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
+                    if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+                }
+            }
         };
     }
 }

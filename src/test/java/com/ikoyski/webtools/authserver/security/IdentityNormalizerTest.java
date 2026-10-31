@@ -15,7 +15,7 @@ import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
-import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedIdentity;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService.FederatedIdentity;
 
 class IdentityNormalizerTest {
 
