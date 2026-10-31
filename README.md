@@ -7,11 +7,17 @@ The authorization server does not own Kanban user records or passwords. After fe
 ## Sign-in and token flow
 
 1. An OAuth client redirects the browser to `/oauth2/authorize` using Authorization Code and PKCE (`S256`).
-2. If there is no authorization-server session, the user is sent to `/login` to authenticate with a configured identity provider.
+2. If there is no authorization-server session, the user is sent to the branded `/login` page, where they choose a configured identity provider.
 3. The provider returns to the Spring Security OAuth2 login callback.
 4. `FederatedLoginSuccessHandler` normalizes the identity and calls the backend's internal federated-user endpoint. The backend resolves or creates the Kanban user and returns the user ID and email.
 5. The authorization server establishes the authenticated principal and completes OAuth authorization.
 6. The client exchanges the authorization code at `/oauth2/token` for a signed JWT access token.
+
+## Branded login page
+
+The authorization server serves its provider-selection UI from `src/main/resources/static/login.html`. Requests to `/login` are routed by `LoginPageController` to that static page. Its Google and GitHub buttons use Spring Security's standard `/oauth2/authorization/{registrationId}` endpoints.
+
+The page is presentation only. Provider registration, callback URLs, verified-identity handling, backend user resolution, OAuth authorization and token issuance remain server-side and are not replaced by frontend code.
 
 The Kanban backend remains the authority for user identity and resource authorization. The authorization server maps the federated identity to a Kanban user; it does not grant application permissions by itself.
 
