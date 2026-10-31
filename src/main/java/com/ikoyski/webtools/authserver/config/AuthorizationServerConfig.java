@@ -23,7 +23,7 @@ import org.springframework.security.oauth2.server.authorization.settings.Authori
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 
-import com.ikoyski.webtools.authserver.client.BackendUserClient;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService;
 
 @Configuration
 public class AuthorizationServerConfig {
@@ -61,31 +61,44 @@ public class AuthorizationServerConfig {
      * deliberately not assigned the MCP audience.
      */
     @Bean
-    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(BackendUserClient backend) {
+    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(CentralIdentityService identities) {
         return context -> {
-            if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+            boolean accessToken = OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType());
+            boolean idToken = "id_token".equals(context.getTokenType().getValue());
+            if (!accessToken && !idToken) {
                 return;
             }
 
-            Object configuredResource = context.getRegisteredClient().getClientSettings()
-                    .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
-            if (configuredResource instanceof String resourceUri && !resourceUri.isBlank()) {
-                context.getClaims().audience(List.of(resourceUri));
-            }
-
             Authentication principal = context.getPrincipal();
-            BackendUserClient.InternalUser user;
+            CentralIdentityService.Identity user;
             try {
-                user = backend.lookupById(principal.getName()).orElse(null);
+                user = identities.findById(principal.getName()).orElse(null);
             } catch (RuntimeException e) {
                 throw new OAuth2AuthenticationException(
-                        new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "User lookup failed", null), e);
+                        new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "Central identity lookup failed", null), e);
             }
             if (user == null) {
                 throw new OAuth2AuthenticationException(
-                        new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "User no longer exists", null));
+                        new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "Central identity no longer exists", null));
             }
-            context.getClaims().claim("uid", user.id()).claim("email", user.email());
+
+            if (accessToken) {
+                Object resource = context.getRegisteredClient().getClientSettings().getSetting(ClientSeeder.RESOURCE_URI_SETTING);
+                if (!(resource instanceof String)) {
+                    resource = context.getRegisteredClient().getClientSettings().getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
+                }
+                if (resource instanceof String resourceUri && !resourceUri.isBlank()) {
+                    context.getClaims().audience(List.of(resourceUri));
+                }
+                // uid remains for compatibility with existing gateways; it is now the central identity ID.
+                context.getClaims().claim("uid", user.id()).claim("email", user.email());
+                if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
+                if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+            } else {
+                context.getClaims().claim("email", user.email()).claim("email_verified", true);
+                if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
+                if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+            }
         };
     }
 }
