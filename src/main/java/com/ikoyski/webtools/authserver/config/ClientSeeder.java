@@ -25,6 +25,8 @@ public class ClientSeeder implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
     public static final String MCP_RESOURCE_SETTING = "mcp.resource";
     public static final String GEMINI_DYNAMIC_REDIRECT_SETTING = "gemini.dynamic-redirect-uri";
+    private static final String GEMINI_REDIRECT_URI_PLACEHOLDER =
+            "https://oauth-redirect.googleusercontent.com/r/__dynamic_callback_placeholder__";
 
     private final RegisteredClientRepository clients;
     private final PasswordEncoder passwordEncoder;
@@ -150,7 +152,11 @@ public class ClientSeeder implements ApplicationRunner {
         TokenSettings.Builder tokenSettings = TokenSettings.builder()
                 .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
                 .accessTokenTimeToLive(Duration.ofHours(1));
-        RegisteredClient.Builder builder = base(clientId, clientName, uris)
+        // RegisteredClient requires at least one redirect URI for authorization_code clients.
+        // This reserved placeholder is never accepted by GeminiRedirectUriValidator.
+        List<String> registeredUris = uris.isEmpty() && geminiDynamicRedirect
+                ? List.of(GEMINI_REDIRECT_URI_PLACEHOLDER) : uris;
+        RegisteredClient.Builder builder = base(clientId, clientName, registeredUris)
                 .scope("kanban.read")
                 .scope("kanban.write")
                 .clientSettings(mcpClientSettings(true, geminiDynamicRedirect))
