@@ -40,11 +40,10 @@ The MCP audience must exactly match the MCP service's configured `security.oauth
 ## Redirect URI requirements
 
 - Redirect URI matching must remain exact for every client except the Gemini-specific validated callback described below; never add wildcard callbacks.
-- Gemini user-bound callbacks must use HTTPS, the exact host `oauth-redirect.googleusercontent.com`, and the `/r/user_bound_custom-mcp-...-<resource-host-slug>` path. The suffix is derived from the host of `auth.client.mcp.resource` by replacing dots with underscores. Reject ports, user-info, query strings, fragments, other hosts and malformed paths.
+- Gemini user-bound callbacks must use HTTPS, the exact host `oauth-redirect.googleusercontent.com`, and the `/r/user_bound_custom-mcp-...-<resource-host-slug>` path. The suffix is derived from the host of `auth.client.mcp.resource` by replacing dots with underscores. Reject ports, user-info, query strings, fragments, other hosts and malformed paths. Config Server may set `redirect-uris: []`; `ClientSeeder` adds a reserved placeholder because Spring requires a redirect URI on authorization-code client registrations, and the validator must never accept that placeholder.
 - Mark only the Gemini registered client with `gemini.dynamic-redirect-uri=true`; the authorization endpoint uses that marker to select the Gemini validator. All other clients continue to use Spring Authorization Server's default exact-match redirect validator. Keep the default scope validator for every client.
 - Use the callback URL shown by the specific OAuth client product.
 - ChatGPT may show a callback-specific connector URI; do not assume the stable callback is universally correct. Confirm the authorization server's issuer-identification behavior against the product requirements.
-- The configured Gemini callback is specific to the Gemini/Vertex AI flow from which it was obtained. Do not assume it is valid for every Gemini product.
 - Test a full browser authorization and token exchange for each provider/client before enabling it in production.
 
 ## Important implementation areas
@@ -80,7 +79,7 @@ Never commit secrets, client credentials, backend internal keys, database passwo
 ## Security invariants
 
 - Require PKCE for authorization-code clients.
-- Keep redirect URIs exact.
+- Keep redirect URIs exact for all clients except the narrowly validated Gemini user-bound callback.
 - Do not weaken client authentication for confidential clients.
 - Do not grant MCP audience to the browser client.
 - Do not issue tokens for unverified or incorrectly linked external identities.
