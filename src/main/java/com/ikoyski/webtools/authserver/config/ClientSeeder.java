@@ -24,6 +24,7 @@ public class ClientSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
     public static final String MCP_RESOURCE_SETTING = "mcp.resource";
+    public static final String MCP_BACKEND_RESOURCE_SETTING = "mcp.backend-resource";
     public static final String RESOURCE_URI_SETTING = "resource.uri";
     public static final String GEMINI_DYNAMIC_REDIRECT_SETTING = "gemini.dynamic-redirect-uri";
     private static final String GEMINI_REDIRECT_URI_PLACEHOLDER =
@@ -40,6 +41,7 @@ public class ClientSeeder implements ApplicationRunner {
     private final String webResourceUri;
     private final ApplicationClientProperties applicationClients;
     private final String mcpResource;
+    private final String mcpBackendResource;
     private final String chatgptClientId;
     private final String chatgptClientSecret;
     private final List<String> chatgptRedirectUris;
@@ -58,6 +60,7 @@ public class ClientSeeder implements ApplicationRunner {
                         @Value("${auth.client.web.resource-uri:}") String webResourceUri,
                         ApplicationClientProperties applicationClients,
                         @Value("${auth.client.mcp.resource:}") String mcpResource,
+                        @Value("${auth.client.mcp.backend-resource:}") String mcpBackendResource,
                         @Value("${auth.client.chatgpt.client-id:}") String chatgptClientId,
                         @Value("${auth.client.chatgpt.client-secret:}") String chatgptClientSecret,
                         @Value("${auth.client.chatgpt.redirect-uris:}") List<String> chatgptRedirectUris,
@@ -75,6 +78,7 @@ public class ClientSeeder implements ApplicationRunner {
         this.webResourceUri = webResourceUri == null ? "" : webResourceUri.trim();
         this.applicationClients = applicationClients;
         this.mcpResource = mcpResource == null ? "" : mcpResource.trim();
+        this.mcpBackendResource = mcpBackendResource == null ? "" : mcpBackendResource.trim();
         this.chatgptClientId = chatgptClientId;
         this.chatgptClientSecret = chatgptClientSecret;
         this.chatgptRedirectUris = chatgptRedirectUris;
