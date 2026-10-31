@@ -104,9 +104,14 @@ public class AuthorizationServerConfig {
                 if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
                 if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
             } else {
-                context.getClaims().claim("email", user.email()).claim("email_verified", true);
-                if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
-                if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+                // OIDC profile claims are returned only when the matching standard scope was granted.
+                if (context.getAuthorizedScopes().contains("email")) {
+                    context.getClaims().claim("email", user.email()).claim("email_verified", true);
+                }
+                if (context.getAuthorizedScopes().contains("profile")) {
+                    if (user.displayName() != null) context.getClaims().claim("name", user.displayName());
+                    if (user.avatarUrl() != null) context.getClaims().claim("picture", user.avatarUrl());
+                }
             }
         };
     }
