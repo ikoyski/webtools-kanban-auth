@@ -78,7 +78,8 @@ public class ClientSeeder implements ApplicationRunner {
         this.webResourceUri = webResourceUri == null ? "" : webResourceUri.trim();
         this.applicationClients = applicationClients;
         this.mcpResource = mcpResource == null ? "" : mcpResource.trim();
-        this.mcpBackendResource = mcpBackendResource == null ? "" : mcpBackendResource.trim();
+        this.mcpBackendResource = mcpBackendResource == null || mcpBackendResource.isBlank()
+                ? this.webResourceUri : mcpBackendResource.trim();
         this.chatgptClientId = chatgptClientId;
         this.chatgptClientSecret = chatgptClientSecret;
         this.chatgptRedirectUris = chatgptRedirectUris;
@@ -239,6 +240,9 @@ public class ClientSeeder implements ApplicationRunner {
                 .requireAuthorizationConsent(requireConsent);
         if (!isBlank(mcpResource)) {
             builder.setting(MCP_RESOURCE_SETTING, mcpResource);
+        }
+        if (!mcpBackendResource.isBlank()) {
+            builder.setting(MCP_BACKEND_RESOURCE_SETTING, mcpBackendResource);
         }
         if (geminiDynamicRedirect) {
             builder.setting(GEMINI_DYNAMIC_REDIRECT_SETTING, true);
