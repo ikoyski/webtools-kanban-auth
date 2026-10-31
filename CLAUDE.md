@@ -13,7 +13,7 @@ It authenticates people through configured federated identity providers and owns
 - The identity-provider callback is normalized by `IdentityNormalizer`.
 - `FederatedLoginSuccessHandler` resolves/creates the person through `CentralIdentityService` and the Auth Server's own database.
 - The authenticated principal name is the stable central identity UUID. This becomes token `sub` and the compatibility `uid` claim.
-- OpenID Connect is enabled; requests with `openid` receive an ID token and can use the UserInfo endpoint.
+- OpenID Connect is enabled; requests with `openid` receive an ID token and can use the UserInfo endpoint. ID-token profile claims are added only when the corresponding `profile` / `email` scope was granted.
 - Resource access tokens carry the audience configured for their OAuth client and application-specific scopes.
 
 Never call an application backend to establish the platform identity. Never store app roles or permissions in this service. Do not link identities solely because their email addresses match.
@@ -51,7 +51,7 @@ Currently enabled: Google (OIDC) and GitHub (OAuth 2.0).
 
 ## MCP resource audience
 
-Each resource client has a fixed audience. MCP clients use `auth.client.mcp.resource`; the Kanban web client uses `auth.client.web.resource-uri`; additional first-party browser clients use their `resource-uri` under `auth.clients.applications`. The access-token customizer emits only that registered client's audience. Keep MCP and first-party API audiences separate.
+Each resource client has a fixed audience. MCP clients use `auth.client.mcp.resource` and also receive the backing Kanban API audience from `auth.client.mcp.backend-resource` (which defaults to `auth.client.web.resource-uri`). This dual audience is intentional: the MCP resource validates the MCP audience, then forwards the same user's delegated token to the Kanban API through the gateway. The Kanban browser client receives only `auth.client.web.resource-uri`; additional first-party browser clients use their own `resource-uri` under `auth.clients.applications`. Never give unrelated first-party apps each other's audiences.
 
 This is a fixed per-client resource binding, not dynamic RFC 8707 resource-indicator support. Every gateway/resource server must validate the exact expected audience and required application scopes. A valid signature and issuer alone are not sufficient.
 
@@ -68,7 +68,7 @@ This is a fixed per-client resource binding, not dynamic RFC 8707 resource-indic
 
 - `ClientSeeder` — config-driven client creation/update, public/confidential client behavior, MCP resource binding and the Gemini dynamic-redirect client marker.
 - `GeminiRedirectUriValidator` — strict validation of Gemini's user-bound callback against the configured MCP resource host.
-- `AuthorizationServerConfig` — authorization server components and JWT access-token customization.
+- `AuthorizationServerConfig` — authorization server components, OIDC ID-token claims and JWT access-token customization.
 - `FederatedLoginSuccessHandler` — federated login completion and central identity resolution.
 - `CentralIdentityService` — owns central identities and provider-subject mappings.
 - `ApplicationClientProperties` / `ClientSeeder` — registers app-specific browser clients.
@@ -92,7 +92,7 @@ Keep custom claims limited to required identity/resource data. Ensure MCP audien
 
 ## Configuration and secrets
 
-Runtime configuration is primarily externalized through the private Spring Config Server. It includes issuer, database connectivity, federated provider credentials, signing-key paths, app client registrations and exact resource audiences.
+Runtime configuration is primarily externalized through the private Spring Config Server. It includes issuer, database connectivity, federated provider credentials, signing-key paths, app client registrations, exact resource audiences, CORS origin allow-lists and logout redirect allow-lists.
 
 Never commit secrets, client credentials, backend internal keys, database passwords or private keys. Do not copy production secret values into examples or test fixtures.
 
