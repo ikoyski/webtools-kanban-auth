@@ -4,7 +4,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Component;
 
-import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedIdentity;
+import com.ikoyski.webtools.authserver.identity.CentralIdentityService.FederatedIdentity;
 
 /**
  * Turns whatever a login provider returns into one provider-neutral shape. Adding a provider means
@@ -13,7 +13,7 @@ import com.ikoyski.webtools.authserver.client.BackendUserClient.FederatedIdentit
  *     it is mutable and not proof of ownership, so report emailVerified=false unless you can prove it;
  *   - github (plain OAuth2, no ID token): read the numeric "id" attribute as the subject and fetch the
  *     verified primary address from /user/emails.
- * The backend still decides what is allowed (InternalUserService.ALLOWED_PROVIDERS).
+ * The central identity service decides which normalized providers are accepted.
  */
 @Component
 public class IdentityNormalizer {
