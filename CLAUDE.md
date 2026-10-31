@@ -27,7 +27,7 @@ Current client types include:
 - Optional Gemini MCP client.
 - Kanban browser/web client.
 
-ChatGPT and Gemini registrations are optional and require a client ID plus at least one exact redirect URI. PKCE is required. A configured client secret makes the client confidential and enables client authentication; public clients use no client authentication and do not receive refresh-token grants. Keep provider-specific behavior aligned with the actual integration product.
+ChatGPT registration is optional and requires a client ID plus at least one exact redirect URI. Gemini registration is optional and requires a client ID plus the configured MCP resource; its redirect URI list may be empty because Gemini generates a per-user callback. PKCE is required for both. A configured client secret makes the client confidential and enables client authentication; public clients use no client authentication and do not receive refresh-token grants. Keep provider-specific behavior aligned with the actual integration product.
 
 ## MCP resource audience
 
@@ -39,7 +39,9 @@ The MCP audience must exactly match the MCP service's configured `security.oauth
 
 ## Redirect URI requirements
 
-- Redirect URI matching must remain exact; never add wildcard callbacks.
+- Redirect URI matching must remain exact for every client except the Gemini-specific validated callback described below; never add wildcard callbacks.
+- Gemini user-bound callbacks must use HTTPS, the exact host `oauth-redirect.googleusercontent.com`, and the `/r/user_bound_custom-mcp-...-<resource-host-slug>` path. The suffix is derived from the host of `auth.client.mcp.resource` by replacing dots with underscores. Reject ports, user-info, query strings, fragments, other hosts and malformed paths.
+- Mark only the Gemini registered client with `gemini.dynamic-redirect-uri=true`; the authorization endpoint uses that marker to select the Gemini validator. All other clients continue to use Spring Authorization Server's default exact-match redirect validator. Keep the default scope validator for every client.
 - Use the callback URL shown by the specific OAuth client product.
 - ChatGPT may show a callback-specific connector URI; do not assume the stable callback is universally correct. Confirm the authorization server's issuer-identification behavior against the product requirements.
 - The configured Gemini callback is specific to the Gemini/Vertex AI flow from which it was obtained. Do not assume it is valid for every Gemini product.
@@ -47,7 +49,8 @@ The MCP audience must exactly match the MCP service's configured `security.oauth
 
 ## Important implementation areas
 
-- `ClientSeeder` — config-driven client creation/update, public/confidential client behavior and MCP resource binding.
+- `ClientSeeder` — config-driven client creation/update, public/confidential client behavior, MCP resource binding and the Gemini dynamic-redirect client marker.
+- `GeminiRedirectUriValidator` — strict validation of Gemini's user-bound callback against the configured MCP resource host.
 - `AuthorizationServerConfig` — authorization server components and JWT access-token customization.
 - `FederatedLoginSuccessHandler` — federated login completion and Kanban user resolution.
 - `IdentityNormalizer` — provider identity normalization.
