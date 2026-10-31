@@ -35,7 +35,7 @@ public class CentralIdentityService {
     public record FederatedIdentity(String provider, String subject, String email, boolean emailVerified,
                                     String displayName, String avatarUrl) {}
 
-    public record Identity(String id, String email, String displayName, String avatarUrl) {}
+    public record Identity(String id, String email, String displayName, String avatarUrl, boolean active) {}
 
     public record FederatedResult(Status status, Identity identity) {
         public enum Status { OK, INVALID, EMAIL_NOT_VERIFIED, EMAIL_IN_USE, REJECTED }
@@ -69,6 +69,9 @@ public class CentralIdentityService {
         Optional<Identity> known = findByProviderSubject(provider, subject);
         if (known.isPresent()) {
             Identity existing = known.get();
+            if (!existing.active()) {
+                return FederatedResult.of(FederatedResult.Status.REJECTED);
+            }
             if (emailBelongsToAnotherUser(email, existing.id())) {
                 return FederatedResult.of(FederatedResult.Status.EMAIL_IN_USE);
             }
@@ -114,7 +117,7 @@ public class CentralIdentityService {
                     .orElseGet(() -> FederatedResult.of(FederatedResult.Status.REJECTED));
         }
 
-        return FederatedResult.ok(new Identity(userId.toString(), email, displayName, avatarUrl));
+        return FederatedResult.ok(new Identity(userId.toString(), email, displayName, avatarUrl, true));
     }
 
     @Transactional(readOnly = true)
@@ -124,12 +127,12 @@ public class CentralIdentityService {
         }
         try {
             return jdbc.query("""
-                    SELECT id, email, display_name, avatar_url
+                    SELECT id, email, display_name, avatar_url, (status = 'ACTIVE') AS active
                       FROM auth_user
                      WHERE id = ?
                     """, (rs, rowNum) -> new Identity(
                             rs.getString("id"), rs.getString("email"),
-                            rs.getString("display_name"), rs.getString("avatar_url")),
+                            rs.getString("display_name"), rs.getString("avatar_url"), rs.getBoolean("active")),
                     UUID.fromString(id.trim())).stream().findFirst();
         } catch (IllegalArgumentException e) {
             return Optional.empty();
@@ -138,7 +141,7 @@ public class CentralIdentityService {
 
     private Optional<Identity> findByProviderSubject(String provider, String subject) {
         return jdbc.query("""
-                SELECT u.id, u.email, u.display_name, u.avatar_url
+                SELECT u.id, u.email, u.display_name, u.avatar_url, (u.status = 'ACTIVE') AS active
                   FROM auth_identity i
                   JOIN auth_user u ON u.id = i.user_id
                  WHERE i.provider_type = ? AND i.provider_subject = ?
