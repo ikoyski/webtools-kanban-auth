@@ -1,7 +1,5 @@
 package com.ikoyski.webtools.authserver.config;
 
-import java.util.List;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -57,9 +55,12 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * Access tokens carry the Kanban user identity (uid/email). MCP clients additionally receive
-     * an audience restricted to the configured MCP resource URI. Non-MCP clients, including the
-     * browser application, retain Spring Authorization Server's normal audience behavior.
+     * Access tokens carry:
+     *   sub   = the Kanban user id (the principal name, set by Spring),
+     *   uid   = the same user id, the claim the gateway reads (so login tokens and these look alike),
+     *   email = the user's email, looked up in the backend,
+     * plus iss, aud, exp, jti and scope from Spring. The lookup runs every time a token is issued or
+     * refreshed, so a user who has been deleted can no longer refresh, and an email change is picked up.
      */
     @Bean
     public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(BackendUserClient backend) {
@@ -67,13 +68,6 @@ public class AuthorizationServerConfig {
             if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
                 return;
             }
-
-            String resource = context.getRegisteredClient().getClientSettings()
-                    .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
-            if (resource instanceof String resourceUri && !resourceUri.isBlank()) {
-                context.getClaims().audience(List.of(resourceUri));
-            }
-
             Authentication principal = context.getPrincipal();
             BackendUserClient.InternalUser user;
             try {

@@ -44,8 +44,10 @@ public class ClientSeeder implements ApplicationRunner {
     private final Duration webAccessTokenTtl;
     private final String mcpResource;
     private final String chatgptClientId;
+    private final String chatgptClientSecret;
     private final List<String> chatgptRedirectUris;
     private final String geminiClientId;
+    private final String geminiClientSecret;
     private final List<String> geminiRedirectUris;
 
     public ClientSeeder(RegisteredClientRepository clients,
@@ -58,8 +60,10 @@ public class ClientSeeder implements ApplicationRunner {
                         @Value("${auth.client.web.access-token-ttl:PT8H}") Duration webAccessTokenTtl,
                         @Value("${auth.client.mcp.resource:}") String mcpResource,
                         @Value("${auth.client.chatgpt.client-id:}") String chatgptClientId,
+                        @Value("${auth.client.chatgpt.client-secret:}") String chatgptClientSecret,
                         @Value("${auth.client.chatgpt.redirect-uris:}") List<String> chatgptRedirectUris,
                         @Value("${auth.client.gemini.client-id:}") String geminiClientId,
+                        @Value("${auth.client.gemini.client-secret:}") String geminiClientSecret,
                         @Value("${auth.client.gemini.redirect-uris:}") List<String> geminiRedirectUris) {
         this.clients = clients;
         this.passwordEncoder = passwordEncoder;
@@ -71,8 +75,10 @@ public class ClientSeeder implements ApplicationRunner {
         this.webAccessTokenTtl = webAccessTokenTtl;
         this.mcpResource = mcpResource == null ? "" : mcpResource.trim();
         this.chatgptClientId = chatgptClientId;
+        this.chatgptClientSecret = chatgptClientSecret;
         this.chatgptRedirectUris = chatgptRedirectUris;
         this.geminiClientId = geminiClientId;
+        this.geminiClientSecret = geminiClientSecret;
         this.geminiRedirectUris = geminiRedirectUris;
     }
 
@@ -80,8 +86,8 @@ public class ClientSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         seedClaude();
         seedWeb();
-        seedPublicMcpClient(chatgptClientId, "ChatGPT MCP connector", chatgptRedirectUris);
-        seedPublicMcpClient(geminiClientId, "Gemini MCP connector", geminiRedirectUris);
+        seedMcpClient(chatgptClientId, chatgptClientSecret, "ChatGPT MCP connector", chatgptRedirectUris);
+        seedMcpClient(geminiClientId, geminiClientSecret, "Gemini MCP connector", geminiRedirectUris);
     }
 
     private void seedClaude() {
@@ -134,7 +140,7 @@ public class ClientSeeder implements ApplicationRunner {
         save(builder.build());
     }
 
-    private void seedPublicMcpClient(String clientId, String clientName, List<String> redirectUris) {
+    private void seedMcpClient(String clientId, String clientSecret, String clientName, List<String> redirectUris) {
         List<String> uris = clean(redirectUris);
         if (isBlank(clientId) || uris.isEmpty()) {
             return;
@@ -144,15 +150,26 @@ public class ClientSeeder implements ApplicationRunner {
             return;
         }
 
+        boolean confidential = !isBlank(clientSecret);
+        TokenSettings.Builder tokenSettings = TokenSettings.builder()
+                .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
+                .accessTokenTimeToLive(Duration.ofHours(1));
         RegisteredClient.Builder builder = base(clientId, clientName, uris)
-                .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
                 .scope("kanban.read")
                 .scope("kanban.write")
                 .clientSettings(mcpClientSettings(true))
-                .tokenSettings(TokenSettings.builder()
-                        .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
-                        .accessTokenTimeToLive(Duration.ofHours(1))
-                        .build());
+                .tokenSettings(confidential
+                        ? tokenSettings.refreshTokenTimeToLive(Duration.ofDays(30)).reuseRefreshTokens(false).build()
+                        : tokenSettings.build());
+
+        if (confidential) {
+            builder.clientSecret(passwordEncoder.encode(clientSecret))
+                    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
+                    .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN);
+        } else {
+            builder.clientAuthenticationMethod(ClientAuthenticationMethod.NONE);
+        }
         save(builder.build());
     }
 
