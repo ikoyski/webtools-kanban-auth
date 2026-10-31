@@ -12,7 +12,7 @@
   <artifactId>webtools-auth-server</artifactId>
   <version>0.0.1-SNAPSHOT</version>
   <name>webtools-auth-server</name>
-  <description>Authentication Server for Webtools Kanban</description>
+  <description>Central Identity and Authorization Server for Webtools applications</description>
   <properties>
     <java.version>21</java.version>
     <spring-cloud.version>2024.0.0</spring-cloud.version>
