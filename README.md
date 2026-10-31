@@ -14,6 +14,10 @@ The identity server owns platform-wide identities and linked provider subjects i
 6. The client exchanges the authorization code at `/oauth2/token` for a signed JWT access token and, when `openid` was requested, an OIDC ID token.
 7. Each resource server validates issuer, signature, audience and its application scopes, then provisions/loads its own local user profile and applies application-specific permissions.
 
+## Onboarding another Webtools application
+
+See [Application onboarding](docs/application-onboarding.md) for client registration, redirect URIs, API audiences, scopes, CORS, logout allow-lists, Gateway routes and local user provisioning.
+
 ## Branded login page
 
 The authorization server serves its provider-selection UI from `src/main/resources/static/login.html`. Requests to `/login` are routed by `LoginPageController` to that static page. Its Google and GitHub buttons use Spring Security's standard `/oauth2/authorization/{registrationId}` endpoints.
