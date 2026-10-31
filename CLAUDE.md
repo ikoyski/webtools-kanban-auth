@@ -39,6 +39,14 @@ Currently enabled: Google (OIDC) and GitHub (OAuth 2.0).
 - The backend's `InternalUserService.ALLOWED_PROVIDERS` must allow each provider. Never merge a new provider identity into an existing account just because the emails match.
 - GitHub callback: `https://auth.ikoyski.top/login/oauth2/code/github`. Keep it exact in the GitHub OAuth App settings.
 
+## Branded login page
+
+- The provider-selection UI is `src/main/resources/static/login.html`; it is plain HTML/CSS and must not require a frontend build or template engine.
+- `LoginPageController` maps `GET /login` to the static `/login.html` resource.
+- `SecurityConfig` must set `oauth2Login().loginPage("/login")` and permit anonymous access to `/login` and `/login.html`. The authorization-server HTML entry point remains `/login`.
+- Provider buttons use the standard `/oauth2/authorization/google` and `/oauth2/authorization/github` endpoints. Styling changes must not alter provider registration IDs, callbacks, identity normalization, success handling, client registrations, PKCE or token behavior.
+- The static page is shared by all OAuth clients that need interactive sign-in; do not move provider selection into the Kanban frontend.
+
 ## MCP resource audience
 
 The MCP resource URI is configured under `auth.client.mcp.resource`. `ClientSeeder` stores it as a custom registered-client setting for MCP clients. The access-token customizer adds this configured URI to the JWT `aud` claim for those clients. The web client must not receive the MCP audience.
