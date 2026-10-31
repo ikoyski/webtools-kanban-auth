@@ -29,9 +29,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 /**
- * Runs after the configured identity provider has authenticated the person. It asks the backend which
- * Kanban user that identity is (creating it on first sign-in) and then REPLACES the provider's
- * authentication with a plain one whose principal name is the Kanban user id. That keeps the stored
+ * Runs after the configured identity provider has authenticated the person. It resolves the provider subject to a central platform identity (creating it on first sign-in) and then
+ * REPLACES the provider's authentication with a plain one whose principal name is the central identity ID. That keeps the stored
  * authorization small and serializable, and makes the token "sub" the user id.
  * The browser is then sent back to the saved /oauth2/authorize request.
  */
@@ -76,6 +75,7 @@ public class FederatedLoginSuccessHandler implements AuthenticationSuccessHandle
 
         switch (result.status()) {
             case OK -> signIn(request, response, result.identity());
+            case INVALID -> reject(request, response, 400, "The identity provider returned an incomplete profile. Please try again.");
             case EMAIL_NOT_VERIFIED -> reject(request, response, 403,
                     "Your account's email address has not been verified, so it cannot be used to sign in.");
             case EMAIL_IN_USE -> reject(request, response, 409,
@@ -86,9 +86,9 @@ public class FederatedLoginSuccessHandler implements AuthenticationSuccessHandle
     }
 
     private void signIn(HttpServletRequest request, HttpServletResponse response,
-                        BackendUserClient.InternalUser user) throws IOException, ServletException {
+                        CentralIdentityService.Identity user) throws IOException, ServletException {
         List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-        User principal = new User(user.id(), "", authorities);   // principal name = Kanban user id
+        User principal = new User(user.id(), "", authorities);   // principal name = central identity ID
         Authentication authenticated = UsernamePasswordAuthenticationToken.authenticated(principal, null, authorities);
 
         SecurityContext context = SecurityContextHolder.createEmptyContext();
