@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -63,7 +64,7 @@ public class AuthorizationServerConfig {
     public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(CentralIdentityService identities) {
         return context -> {
             boolean accessToken = OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType());
-            boolean idToken = "id_token".equals(context.getTokenType().getValue());
+            boolean idToken = OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue());
             if (!accessToken && !idToken) {
                 return;
             }
