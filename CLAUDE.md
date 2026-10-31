@@ -2,20 +2,21 @@
 
 ## Project role
 
-This repository is the OAuth 2.0 / OpenID Connect authorization server for the Kanban platform. It uses Spring Authorization Server on Spring Boot 3.4.2 / Java 21.
+This repository is the shared Webtools Identity Server. It uses Spring Authorization Server on Spring Boot 3.4.2 / Java 21 and supports OAuth 2.0 plus OpenID Connect.
 
-It authenticates people through configured federated identity providers and maps those identities to Kanban users through the backend's internal federated-user API. The Kanban backend remains the source of truth for users and application authorization. This service owns OAuth client registrations, authorizations, consents and token issuance—not Kanban passwords or board data.
+It authenticates people through configured federated identity providers and owns central person records plus linked provider subjects in its own database. It does not own application data, app-local profiles, memberships, roles or permissions. Each resource server provisions its local profile against the central UUID and makes its own authorization decisions.
 
 ## Core sign-in flow
 
 - OAuth clients use Authorization Code with PKCE (`S256`).
 - Spring Security redirects unauthenticated users to the federated login page.
 - The identity-provider callback is normalized by `IdentityNormalizer`.
-- `FederatedLoginSuccessHandler` resolves the identity through the backend internal API.
-- The authenticated principal is the Kanban user identity.
-- Spring Authorization Server issues signed JWT access tokens.
+- `FederatedLoginSuccessHandler` resolves/creates the person through `CentralIdentityService` and the Auth Server's own database.
+- The authenticated principal name is the stable central identity UUID. This becomes token `sub` and the compatibility `uid` claim.
+- OpenID Connect is enabled; requests with `openid` receive an ID token and can use the UserInfo endpoint.
+- Resource access tokens carry the audience configured for their OAuth client and application-specific scopes.
 
-Do not bypass federated identity resolution or create a separate user store in this service.
+Never call an application backend to establish the platform identity. Never store app roles or permissions in this service. Do not link identities solely because their email addresses match.
 
 ## Client registration and seeding
 
@@ -26,6 +27,7 @@ Current client types include:
 - Optional ChatGPT MCP client.
 - Optional Gemini MCP client.
 - Kanban browser/web client.
+- Additional first-party browser applications configured under `auth.clients.applications`.
 
 ChatGPT registration is optional and requires a client ID plus at least one exact redirect URI. Gemini registration is optional and requires a client ID plus the configured MCP resource; its redirect URI list may be empty because Gemini generates a per-user callback. PKCE is required for both. A configured client secret makes the client confidential and enables client authentication; public clients use no client authentication and do not receive refresh-token grants. Keep provider-specific behavior aligned with the actual integration product.
 
@@ -36,7 +38,7 @@ Currently enabled: Google (OIDC) and GitHub (OAuth 2.0).
 - Google identity normalization uses the OIDC subject and the provider's `email_verified` claim.
 - GitHub is a plain OAuth 2.0 provider. `GitHubOAuth2UserService` loads the profile and fetches `/user/emails` with the `user:email` scope. Accept only the email GitHub marks both `primary` and `verified`.
 - Use the numeric GitHub account `id` as the stable subject. Never use the mutable GitHub login name or email as the identity key.
-- The backend's `InternalUserService.ALLOWED_PROVIDERS` must allow each provider. Never merge a new provider identity into an existing account just because the emails match.
+- `CentralIdentityService.ALLOWED_PROVIDERS` must allow each enabled provider. Never merge a new provider identity into an existing account just because the emails match. Account linking must be an explicit authenticated flow.
 - GitHub callback: `https://auth.ikoyski.top/login/oauth2/code/github`. Keep it exact in the GitHub OAuth App settings.
 
 ## Branded login page
@@ -49,11 +51,9 @@ Currently enabled: Google (OIDC) and GitHub (OAuth 2.0).
 
 ## MCP resource audience
 
-The MCP resource URI is configured under `auth.client.mcp.resource`. `ClientSeeder` stores it as a custom registered-client setting for MCP clients. The access-token customizer adds this configured URI to the JWT `aud` claim for those clients. The web client must not receive the MCP audience.
+Each resource client has a fixed audience. MCP clients use `auth.client.mcp.resource`; the Kanban web client uses `auth.client.web.resource-uri`; additional first-party browser clients use their `resource-uri` under `auth.clients.applications`. The access-token customizer emits only that registered client's audience. Keep MCP and first-party API audiences separate.
 
-This is a fixed per-client resource binding. The current implementation does not dynamically validate arbitrary RFC 8707 `resource` parameters. Do not claim full dynamic resource-indicator support unless that implementation is added and tested.
-
-The MCP audience must exactly match the MCP service's configured `security.oauth2.audience` and the gateway's protected-resource configuration.
+This is a fixed per-client resource binding, not dynamic RFC 8707 resource-indicator support. Every gateway/resource server must validate the exact expected audience and required application scopes. A valid signature and issuer alone are not sufficient.
 
 ## Redirect URI requirements
 
@@ -69,10 +69,11 @@ The MCP audience must exactly match the MCP service's configured `security.oauth
 - `ClientSeeder` — config-driven client creation/update, public/confidential client behavior, MCP resource binding and the Gemini dynamic-redirect client marker.
 - `GeminiRedirectUriValidator` — strict validation of Gemini's user-bound callback against the configured MCP resource host.
 - `AuthorizationServerConfig` — authorization server components and JWT access-token customization.
-- `FederatedLoginSuccessHandler` — federated login completion and Kanban user resolution.
+- `FederatedLoginSuccessHandler` — federated login completion and central identity resolution.
+- `CentralIdentityService` — owns central identities and provider-subject mappings.
+- `ApplicationClientProperties` / `ClientSeeder` — registers app-specific browser clients.
 - `IdentityNormalizer` — provider identity normalization.
 - `GitHubOAuth2UserService` — GitHub profile loading and verified-primary-email resolution.
-- `InternalUserService` — backend user lookup/provisioning integration.
 - `src/main/resources` — application and Config Server configuration.
 - `db/migration` — Flyway schema migrations.
 
@@ -91,7 +92,7 @@ Keep custom claims limited to required identity/resource data. Ensure MCP audien
 
 ## Configuration and secrets
 
-Runtime configuration is primarily externalized through the private Spring Config Server. It includes issuer, database connectivity, federated provider credentials, backend internal API settings, signing-key paths and OAuth client settings.
+Runtime configuration is primarily externalized through the private Spring Config Server. It includes issuer, database connectivity, federated provider credentials, signing-key paths, app client registrations and exact resource audiences.
 
 Never commit secrets, client credentials, backend internal keys, database passwords or private keys. Do not copy production secret values into examples or test fixtures.
 
@@ -100,9 +101,12 @@ Never commit secrets, client credentials, backend internal keys, database passwo
 - Require PKCE for authorization-code clients.
 - Keep redirect URIs exact for all clients except the narrowly validated Gemini user-bound callback.
 - Do not weaken client authentication for confidential clients.
-- Do not grant MCP audience to the browser client.
+- Never grant one application's audience to another client.
+- Require per-application scopes and exact audience checks at resource servers.
+- Keep app-specific roles and permissions out of the identity server.
 - Do not issue tokens for unverified or incorrectly linked external identities.
-- Do not trust client-supplied identity claims as a substitute for backend identity resolution.
+- Treat external provider attributes as untrusted until validated by the configured provider service and normalized by the server.
+- Never let a client supply its own identity, roles, scopes or audience claims.
 - Never log tokens, secrets or private key material.
 - Keep authorization-server issuer and JWKS configuration aligned with the gateway and MCP resource server.
 
