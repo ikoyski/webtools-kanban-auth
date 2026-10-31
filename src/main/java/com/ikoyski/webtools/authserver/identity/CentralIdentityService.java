@@ -5,7 +5,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -147,7 +146,7 @@ public class CentralIdentityService {
                  WHERE i.provider_type = ? AND i.provider_subject = ?
                 """, (rs, rowNum) -> new Identity(
                         rs.getString("id"), rs.getString("email"),
-                        rs.getString("display_name"), rs.getString("avatar_url")),
+                        rs.getString("display_name"), rs.getString("avatar_url"), rs.getBoolean("active")),
                 provider, subject).stream().findFirst();
     }
 
