@@ -19,23 +19,11 @@ import org.springframework.security.oauth2.server.authorization.settings.OAuth2T
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
 import org.springframework.stereotype.Component;
 
-/**
- * Registers the OAuth clients from configuration on every start (created if missing, updated if it
- * already exists), so the configuration is the source of truth. Dynamic client registration is off.
- *
- * IMPORTANT: Spring Authorization Server never issues refresh tokens to PUBLIC clients (no client secret).
- *   - Claude connector: registered as a CONFIDENTIAL client (client secret, PKCE still required) so it gets
- *     refresh tokens and stays connected. Claude's cloud holds the secret; you enter it in the connector's
- *     advanced settings. Set auth.client.claude.client-secret. Without a secret it falls back to a public
- *     client with a warning, and the connector would have to sign in again every time the access token expires.
- *   - Kanban web UI: a public client (a browser app cannot keep a secret), PKCE required, no refresh token.
- *     It gets a longer-lived access token instead and signs in again, silently if the auth session is
- *     still valid, when it expires. Registered only when its client id and redirect URIs are set.
- */
 @Component
 public class ClientSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
+    public static final String MCP_RESOURCE_SETTING = "mcp.resource";
 
     private final RegisteredClientRepository clients;
     private final PasswordEncoder passwordEncoder;
@@ -45,6 +33,13 @@ public class ClientSeeder implements ApplicationRunner {
     private final String webClientId;
     private final List<String> webRedirectUris;
     private final Duration webAccessTokenTtl;
+    private final String mcpResource;
+    private final String chatgptClientId;
+    private final String chatgptClientSecret;
+    private final List<String> chatgptRedirectUris;
+    private final String geminiClientId;
+    private final String geminiClientSecret;
+    private final List<String> geminiRedirectUris;
 
     public ClientSeeder(RegisteredClientRepository clients,
                         PasswordEncoder passwordEncoder,
@@ -53,7 +48,14 @@ public class ClientSeeder implements ApplicationRunner {
                         @Value("${auth.client.claude.redirect-uris}") List<String> claudeRedirectUris,
                         @Value("${auth.client.web.client-id:}") String webClientId,
                         @Value("${auth.client.web.redirect-uris:}") List<String> webRedirectUris,
-                        @Value("${auth.client.web.access-token-ttl:PT8H}") Duration webAccessTokenTtl) {
+                        @Value("${auth.client.web.access-token-ttl:PT8H}") Duration webAccessTokenTtl,
+                        @Value("${auth.client.mcp.resource:}") String mcpResource,
+                        @Value("${auth.client.chatgpt.client-id:}") String chatgptClientId,
+                        @Value("${auth.client.chatgpt.client-secret:}") String chatgptClientSecret,
+                        @Value("${auth.client.chatgpt.redirect-uris:}") List<String> chatgptRedirectUris,
+                        @Value("${auth.client.gemini.client-id:}") String geminiClientId,
+                        @Value("${auth.client.gemini.client-secret:}") String geminiClientSecret,
+                        @Value("${auth.client.gemini.redirect-uris:}") List<String> geminiRedirectUris) {
         this.clients = clients;
         this.passwordEncoder = passwordEncoder;
         this.claudeClientId = claudeClientId;
@@ -62,12 +64,21 @@ public class ClientSeeder implements ApplicationRunner {
         this.webClientId = webClientId;
         this.webRedirectUris = webRedirectUris;
         this.webAccessTokenTtl = webAccessTokenTtl;
+        this.mcpResource = mcpResource == null ? "" : mcpResource.trim();
+        this.chatgptClientId = chatgptClientId;
+        this.chatgptClientSecret = chatgptClientSecret;
+        this.chatgptRedirectUris = chatgptRedirectUris;
+        this.geminiClientId = geminiClientId;
+        this.geminiClientSecret = geminiClientSecret;
+        this.geminiRedirectUris = geminiRedirectUris;
     }
 
     @Override
     public void run(ApplicationArguments args) {
         seedClaude();
         seedWeb();
+        seedMcpClient(chatgptClientId, chatgptClientSecret, "ChatGPT MCP connector", chatgptRedirectUris);
+        seedMcpClient(geminiClientId, geminiClientSecret, "Gemini MCP connector", geminiRedirectUris);
     }
 
     private void seedClaude() {
@@ -85,7 +96,7 @@ public class ClientSeeder implements ApplicationRunner {
         RegisteredClient.Builder builder = base(claudeClientId, "Claude connector", uris)
                 .scope("kanban.read")
                 .scope("kanban.write")
-                .clientSettings(ClientSettings.builder().requireProofKey(true).requireAuthorizationConsent(true).build())
+                .clientSettings(mcpClientSettings(true))
                 .tokenSettings(TokenSettings.builder()
                         .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
                         .accessTokenTimeToLive(Duration.ofHours(1))
@@ -120,7 +131,50 @@ public class ClientSeeder implements ApplicationRunner {
         save(builder.build());
     }
 
-    /** Reuses the stored id when the client already exists, so saving updates the row instead of inserting. */
+    private void seedMcpClient(String clientId, String clientSecret, String clientName, List<String> redirectUris) {
+        List<String> uris = clean(redirectUris);
+        if (isBlank(clientId) || uris.isEmpty()) {
+            return;
+        }
+        if (isBlank(mcpResource)) {
+            log.error("Cannot register MCP OAuth client '{}': auth.client.mcp.resource is not configured", clientId);
+            return;
+        }
+
+        boolean confidential = !isBlank(clientSecret);
+        TokenSettings.Builder tokenSettings = TokenSettings.builder()
+                .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
+                .accessTokenTimeToLive(Duration.ofHours(1));
+        RegisteredClient.Builder builder = base(clientId, clientName, uris)
+                .scope("kanban.read")
+                .scope("kanban.write")
+                .clientSettings(mcpClientSettings(true))
+                .tokenSettings(confidential
+                        ? tokenSettings.refreshTokenTimeToLive(Duration.ofDays(30)).reuseRefreshTokens(false).build()
+                        : tokenSettings.build());
+
+        if (confidential) {
+            builder.scope("offline_access")
+                    .clientSecret(passwordEncoder.encode(clientSecret))
+                    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
+                    .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN);
+        } else {
+            builder.clientAuthenticationMethod(ClientAuthenticationMethod.NONE);
+        }
+        save(builder.build());
+    }
+
+    private ClientSettings mcpClientSettings(boolean requireConsent) {
+        ClientSettings.Builder builder = ClientSettings.builder()
+                .requireProofKey(true)
+                .requireAuthorizationConsent(requireConsent);
+        if (!isBlank(mcpResource)) {
+            builder.setting(MCP_RESOURCE_SETTING, mcpResource);
+        }
+        return builder.build();
+    }
+
     private RegisteredClient.Builder base(String clientId, String name, List<String> redirectUris) {
         RegisteredClient existing = clients.findByClientId(clientId);
         RegisteredClient.Builder builder = RegisteredClient
@@ -139,7 +193,7 @@ public class ClientSeeder implements ApplicationRunner {
     }
 
     private static List<String> clean(List<String> values) {
-        return values.stream().map(String::trim).filter(v -> !v.isEmpty()).toList();
+        return values == null ? List.of() : values.stream().map(String::trim).filter(v -> !v.isEmpty()).toList();
     }
 
     private static boolean isBlank(String value) {
