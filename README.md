@@ -1,118 +1,74 @@
-# webtools-auth-server
+# WebTools Kanban Authorization Server
 
-Spring Authorization Server (Spring Boot 3.4.2, Java 21). People sign in with Google (more providers later);
-this server then issues OAuth access tokens to registered clients: the Claude connector now, the Kanban web UI next.
-It owns no users and no passwords: the kanban backend owns the users, and this server asks it which user an
-identity belongs to.
+Spring Authorization Server built with Spring Boot 3.4.2 and Java 21. It authenticates people through configured identity providers (currently Google) and issues OAuth 2.0 access tokens to registered clients, including Claude and optional MCP integrations such as ChatGPT and Gemini, as well as the Kanban web client.
 
-## How a sign-in works
+The authorization server does not own Kanban user records or passwords. After federated sign-in, it asks the Kanban backend to resolve the external identity to a Kanban user.
 
-1. A client (Claude) sends the browser to `https://auth.ikoyski.top/oauth2/authorize` (PKCE required).
-2. Not signed in yet: the browser is sent to `/login`, which lists "Google".
-3. Google authenticates the person and sends the browser back to `/login/oauth2/code/google`.
-4. `FederatedLoginSuccessHandler` normalizes the Google identity and calls the backend
-   `POST /internal/v1/users/federated`. The backend finds the user, or creates it on first sign-in, and returns `{id, email}`.
-   It refuses unverified emails (403) and an email that belongs to another user (409).
-5. The session's principal becomes the Kanban user id, the consent screen is shown (Claude only), and a code is issued.
-6. The client exchanges the code at `/oauth2/token` for an access token (JWT).
-   - **Claude connector:** a confidential client (client secret + PKCE). Access token 1 hour, refresh token 30 days, rotated on use.
-   - **Kanban web UI:** a public client (PKCE, no secret). Spring Authorization Server never issues refresh tokens to public
-     clients, so the UI gets a longer access token (default 8 hours) and signs in again when it expires. That is silent while the
-     auth server's own session (7 days) is valid.
+## Sign-in and token flow
 
-Access token claims: `sub` = user id, `uid` = user id, `email`, `iss`, `aud`, `exp`, `jti`, `scope`. The signing key is
-asymmetric; services verify tokens with the public keys at `/oauth2/jwks`.
+1. An OAuth client redirects the browser to `/oauth2/authorize` using Authorization Code and PKCE (`S256`).
+2. If there is no authorization-server session, the user is sent to `/login` to authenticate with a configured identity provider.
+3. The provider returns to the Spring Security OAuth2 login callback.
+4. `FederatedLoginSuccessHandler` normalizes the identity and calls the backend's internal federated-user endpoint. The backend resolves or creates the Kanban user and returns the user ID and email.
+5. The authorization server establishes the authenticated principal and completes OAuth authorization.
+6. The client exchanges the authorization code at `/oauth2/token` for a signed JWT access token.
 
-## 1. Google Cloud
+The Kanban backend remains the authority for user identity and resource authorization. The authorization server maps the federated identity to a Kanban user; it does not grant application permissions by itself.
 
-- APIs & Services > Credentials > Create OAuth client ID > **Web application**.
-- Authorized redirect URI: `https://auth.ikoyski.top/login/oauth2/code/google` (exactly).
-- OAuth consent screen: scopes `openid`, `email`, `profile`; **publish it to production**, otherwise only listed test users can sign in.
-- Keep the client ID and secret for the environment below. Use a separate OAuth client from any Google button in the web UI.
+## Token claims and keys
 
-## 2. Signing key (once)
+Access tokens include standard claims such as `iss`, `sub`, `aud`, `exp`, `jti` and `scope`, plus the Kanban user ID (`uid`) and email where available. MCP client tokens receive the configured MCP resource URI as their `aud` value. The web client is not assigned the MCP audience.
 
-    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out auth-private.pem
-    openssl rsa -in auth-private.pem -pubout -out auth-public.pem
+JWTs are signed asymmetrically. Resource servers validate signatures using the public keys published at:
 
-Keep `auth-private.pem` out of git (add `*.pem` to `.gitignore` first). Without a key the app generates an ephemeral one
-and logs a warning; tokens then stop validating after a restart.
+```text
+https://auth.ikoyski.top/oauth2/jwks
+```
 
-## 3. Environment
+The issuer is:
 
-    AUTH_ISSUER=https://auth.ikoyski.top
-    AUTH_DB_URL=jdbc:postgresql://<host>:5432/authdb
-    AUTH_DB_USER=auth
-    AUTH_DB_PASSWORD=...
-    AUTH_GOOGLE_CLIENT_ID=...
-    AUTH_GOOGLE_CLIENT_SECRET=...
-    AUTH_BACKEND_BASE_URL=http://<backend internal host>:<port>/kanban-backend   # internal, never the public gateway
-    AUTH_BACKEND_INTERNAL_KEY=<long random string; same value as the backend's INTERNAL_API_KEY>
-    AUTH_JWK_PRIVATE_KEY_FILE=/path/auth-private.pem
-    AUTH_JWK_PUBLIC_KEY_FILE=/path/auth-public.pem
+```text
+https://auth.ikoyski.top
+```
 
-Claude connector secret (generate one with `openssl rand -base64 36`; you enter the same value in the connector's advanced settings):
+Keep the issuer stable and consistent with gateway and MCP JWT validation configuration. Persist the signing key across restarts; an ephemeral key invalidates previously issued tokens after restart.
 
-    AUTH_CLAUDE_CLIENT_SECRET=...
+## Registered OAuth clients
 
-Optional, for the web UI (leave empty until the UI signs in through this server):
+Clients are seeded/upserted by `ClientSeeder` at application startup from Config Server properties. Do not edit `oauth2_registered_client` manually.
 
-    AUTH_WEB_CLIENT_ID=kanban-web
-    AUTH_WEB_REDIRECT_URIS=https://pages.ikoyski.top/<callback page>
-    AUTH_CORS_ALLOWED_ORIGINS=https://pages.ikoyski.top
-    AUTH_LOGOUT_REDIRECTS=https://pages.ikoyski.top/kanban/kanban.html
-    AUTH_WEB_ACCESS_TOKEN_TTL=PT8H
+| Client | Purpose | Typical security model |
+|---|---|---|
+| Claude | MCP access | Configurable public or confidential client; PKCE |
+| ChatGPT | MCP access | Optional; PKCE; public without a secret, confidential with a secret |
+| Gemini | MCP access | Optional; PKCE; public without a secret, confidential with a secret |
+| Kanban web | Browser application | Public client with PKCE |
 
-The app refuses to start without the Google settings or `AUTH_BACKEND_INTERNAL_KEY`. Do not set a servlet context path:
-the issuer must be a bare origin. Create the `authdb` database and role first; Flyway (`db/migration/V1__oauth2_schema.sql`) creates the tables.
+MCP clients are assigned the configured resource URI through a custom registered-client setting. The access-token customizer copies that URI into the access token's `aud` claim. The browser client does not receive this MCP audience.
 
-## 4. Run and check
+Optional ChatGPT and Gemini clients are seeded only when their client ID and at least one redirect URI are configured. A configured secret enables confidential-client authentication and rotating refresh tokens where supported by the client configuration. Public ChatGPT/Gemini clients do not receive refresh-token grants. Provider behavior and supported grants must be verified against the exact product integration.
 
-    mvn spring-boot:run
+### Redirect URI rules
 
-    curl -s https://auth.ikoyski.top/.well-known/oauth-authorization-server | jq .
-    curl -s https://auth.ikoyski.top/oauth2/jwks | jq .
+- Register exact redirect URIs supplied by the OAuth client product. Never use wildcards.
+- For ChatGPT, use the exact callback URL shown in the connector setup UI. Depending on the integration flow, this may be a callback-specific URL rather than the stable `/connector_platform_oauth_redirect` URI. The server's authorization-response issuer-identification behavior must also match the callback requirements.
+- The configured Gemini callback is specific to the Gemini/Vertex AI integration that supplied it. Do not assume it applies to consumer Gemini, Gemini CLI or every Google AI product.
+- Test the complete authorization-code flow with each product before enabling it for users.
 
-Expect the issuer `https://auth.ikoyski.top`, `S256` in `code_challenge_methods_supported`, and one RSA key.
-Then open `https://auth.ikoyski.top/login` in a browser: it should list Google.
+## Config Server properties
 
-## 5. Cloudflare
+The authorization server expects its issuer, database, federated-login provider, backend integration, signing-key paths and client registrations to be supplied through external configuration.
 
-Add a second public hostname on the existing tunnel: `auth.ikoyski.top` -> `http://<this host>:8086`.
-This host is not behind the gateway, so add a Cloudflare rate-limiting rule for `/oauth2/token` and `/login/**`.
-
-## 6. Adding another provider
-
-Add a registration under `spring.security.oauth2.client.registration`, one branch in `IdentityNormalizer`, and the
-provider name to `InternalUserService.ALLOWED_PROVIDERS` in the backend. No schema change. Microsoft and GitHub need care
-with email: see the comments in `IdentityNormalizer`.
-
-## 7. Clients are config-driven
-
-`ClientSeeder` creates or updates the clients on every start, so changing a redirect URI, the secret or a lifetime is a config
-change plus a restart. Do not edit `oauth2_registered_client` by hand. `GET /logout?redirect=<url>` signs the person out of this
-server and returns them to an allow-listed URL.
-
-## 8. Still to do elsewhere
-
-- Gateway: verify tokens from this issuer (JWKS) in `AuthenticationFilter`, next to the existing login tokens, and read
-  `uid` and `email` from them.
-- MCP route: answer unauthenticated requests with a `WWW-Authenticate` header pointing at the protected-resource
-  metadata, and serve that document.
-- Web UI: sign in through this server (authorization code + PKCE) instead of the password form.
-
-
-## MCP OAuth clients
-
-The Config Server can optionally seed separate OAuth clients for MCP integrations. All MCP clients use Authorization Code + PKCE and are bound to the configured MCP resource URI, which is written into the JWT `aud` claim. The existing browser client is not assigned this audience.
-
-Configure the resource URI and each provider's exact redirect URI in the Config Server:
+Representative MCP client configuration:
 
 ```yaml
 auth:
+  issuer: https://auth.ikoyski.top
   client:
     mcp:
       resource: https://api.ikoyski.top/kanban-mcp/mcp
+    claude:
+      # Existing Claude client configuration
     chatgpt:
       client-id: kanban-chatgpt
       client-secret: ${AUTH_CHATGPT_CLIENT_SECRET:}
@@ -125,6 +81,60 @@ auth:
         - ${GEMINI_OAUTH_REDIRECT_URI}
 ```
 
-ChatGPT and Gemini entries are optional and are seeded only when a client ID and at least one redirect URI are configured. Without a client secret, a client is public and does not receive refresh tokens. If the provider supports confidential OAuth, configure a secret to enable client authentication and rotating refresh tokens; confidential MCP clients also allow the `offline_access` scope. Secrets must come from environment variables or a secret manager.
+The MCP resource URI must match the audience expected by the MCP resource server and the gateway's protected-resource configuration. It is a configured resource binding; the current implementation does not dynamically validate arbitrary RFC 8707 `resource` request parameters. Do not describe this as full dynamic RFC 8707 resource-indicator support.
 
-Do not guess redirect URIs or use wildcard callback URLs. Use the exact callback URL shown by the MCP client product. Set `auth.client.mcp.resource` even when only Claude is enabled, so Claude's access tokens also receive the MCP audience. The existing `auth.client.web` configuration remains unchanged.
+Secrets and environment-specific values belong in the private Config Server/secret store or deployment environment, not in application source.
+
+## Google identity provider setup
+
+For Google sign-in, configure a Web application OAuth client and register the exact Spring Security callback:
+
+```text
+https://auth.ikoyski.top/login/oauth2/code/google
+```
+
+Configure the required OpenID Connect scopes (`openid`, `email`, `profile`) and publish/authorize the consent configuration for the intended users. Use a dedicated provider client for this server.
+
+## Signing key setup
+
+Generate and securely store an RSA key pair using an approved secret-management process. The private key must never be committed to Git. Configure the application with persistent private/public key file paths. Ensure the public key exposed through JWKS corresponds to the private signing key.
+
+## Run and verify
+
+Requirements: JDK 21, Maven, reachable PostgreSQL database, Config Server configuration, identity-provider credentials, backend internal integration and persistent signing keys.
+
+```bash
+./mvnw clean verify
+./mvnw spring-boot:run
+```
+
+Inspect the published metadata and keys:
+
+```bash
+curl -s https://auth.ikoyski.top/.well-known/oauth-authorization-server
+curl -s https://auth.ikoyski.top/oauth2/jwks
+```
+
+Verify the issuer, authorization-code grant, PKCE `S256`, token endpoint and signing key set. Then test a complete login and code exchange for every registered client.
+
+## Deployment and operational notes
+
+The service is deployed separately from the API gateway. Restrict and rate-limit public authentication endpoints such as `/oauth2/token` and login routes at the edge. Ensure the database, signing keys and authorization-server session configuration survive normal restarts.
+
+## Development rules
+
+- Keep the Kanban backend as the source of truth for Kanban users.
+- Never log access tokens, client secrets, private keys or backend internal credentials.
+- Keep redirect URI matching exact.
+- Preserve PKCE for public and confidential authorization-code clients.
+- Ensure only intended MCP clients receive the MCP resource audience.
+- Keep client seeding idempotent and config-driven.
+- Update README and `CLAUDE.md` when client registration, claims, login, key management or deployment behavior changes.
+- Run `./mvnw clean verify`; do not claim live provider flows were tested unless they were actually executed.
+
+## Related components
+
+- `webtools-config-server` — externalized application configuration.
+- `webtools-api-gateway` — public routing and gateway-side token/resource protection.
+- `webtools-kanban-mcp` — MCP resource server that validates the issued JWT and forwards it to the Kanban API.
+- `webtools-kanban` — Kanban frontend and user experience.
