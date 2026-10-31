@@ -56,9 +56,8 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * All access tokens retain the Kanban uid/email claims. Clients registered for the MCP resource
-     * additionally receive that exact resource URI as their JWT audience. The browser client is
-     * deliberately not assigned the MCP audience.
+     * Access tokens carry the stable central identity ID in the compatibility uid claim. Each configured
+     * resource client receives only its own audience. OIDC ID tokens carry standard profile claims.
      */
     @Bean
     public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(CentralIdentityService identities) {
@@ -77,7 +76,7 @@ public class AuthorizationServerConfig {
                 throw new OAuth2AuthenticationException(
                         new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR, "Central identity lookup failed", null), e);
             }
-            if (user == null) {
+            if (user == null || !user.active()) {
                 throw new OAuth2AuthenticationException(
                         new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED, "Central identity no longer exists", null));
             }
