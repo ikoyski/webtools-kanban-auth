@@ -76,19 +76,22 @@ public class SecurityConfig {
     }
 
     /**
-     * Everything else: sign-in with the configured identity providers (Google today) and health.
+     * Everything else: sign-in with the configured identity providers (Google and GitHub) and health.
      * With oauth2Login and no form login, Spring generates the /login page listing each provider.
      */
     @Bean
     @Order(2)
     public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http,
                                                           FederatedLoginSuccessHandler successHandler,
-                                                          LogoutRedirectHandler logoutHandler) throws Exception {
+                                                          LogoutRedirectHandler logoutHandler,
+                                                          GitHubOAuth2UserService githubOAuth2UserService) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .anyRequest().authenticated())
-                .oauth2Login(login -> login.successHandler(successHandler))
+                .oauth2Login(login -> login
+                        .userInfoEndpoint(userInfo -> userInfo.userService(githubOAuth2UserService))
+                        .successHandler(successHandler))
                 // GET /logout?redirect=<allow-listed url> ends this server's sign-in session, so "sign out" in an
                 // app really signs the person out instead of silently signing them back in.
                 .logout(logout -> logout
