@@ -1,5 +1,7 @@
 package com.ikoyski.webtools.authserver.config;
 
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,7 +33,6 @@ public class AuthorizationServerConfig {
         return AuthorizationServerSettings.builder().issuer(issuer).build();
     }
 
-    /** Hashes OAuth client secrets ({bcrypt} by default). Spring Authorization Server uses this bean to verify them. */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
@@ -55,12 +56,9 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * Access tokens carry:
-     *   sub   = the Kanban user id (the principal name, set by Spring),
-     *   uid   = the same user id, the claim the gateway reads (so login tokens and these look alike),
-     *   email = the user's email, looked up in the backend,
-     * plus iss, aud, exp, jti and scope from Spring. The lookup runs every time a token is issued or
-     * refreshed, so a user who has been deleted can no longer refresh, and an email change is picked up.
+     * All access tokens retain the Kanban uid/email claims. Clients registered for the MCP resource
+     * additionally receive that exact resource URI as their JWT audience. The browser client is
+     * deliberately not assigned the MCP audience.
      */
     @Bean
     public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(BackendUserClient backend) {
@@ -68,6 +66,13 @@ public class AuthorizationServerConfig {
             if (!OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
                 return;
             }
+
+            Object configuredResource = context.getRegisteredClient().getClientSettings()
+                    .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
+            if (configuredResource instanceof String resourceUri && !resourceUri.isBlank()) {
+                context.getClaims().audience(List.of(resourceUri));
+            }
+
             Authentication principal = context.getPrincipal();
             BackendUserClient.InternalUser user;
             try {

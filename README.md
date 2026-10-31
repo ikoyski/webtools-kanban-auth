@@ -100,3 +100,31 @@ server and returns them to an allow-listed URL.
 - MCP route: answer unauthenticated requests with a `WWW-Authenticate` header pointing at the protected-resource
   metadata, and serve that document.
 - Web UI: sign in through this server (authorization code + PKCE) instead of the password form.
+
+
+## MCP OAuth clients
+
+The Config Server can optionally seed separate OAuth clients for MCP integrations. All MCP clients use Authorization Code + PKCE and are bound to the configured MCP resource URI, which is written into the JWT `aud` claim. The existing browser client is not assigned this audience.
+
+Configure the resource URI and each provider's exact redirect URI in the Config Server:
+
+```yaml
+auth:
+  client:
+    mcp:
+      resource: https://api.ikoyski.top/kanban-mcp/mcp
+    chatgpt:
+      client-id: kanban-chatgpt
+      client-secret: ${AUTH_CHATGPT_CLIENT_SECRET:}
+      redirect-uris:
+        - ${CHATGPT_OAUTH_REDIRECT_URI}
+    gemini:
+      client-id: kanban-gemini
+      client-secret: ${AUTH_GEMINI_CLIENT_SECRET:}
+      redirect-uris:
+        - ${GEMINI_OAUTH_REDIRECT_URI}
+```
+
+ChatGPT and Gemini entries are optional and are seeded only when a client ID and at least one redirect URI are configured. Without a client secret, a client is public and does not receive refresh tokens. If the provider supports confidential OAuth, configure a secret to enable client authentication and rotating refresh tokens; confidential MCP clients also allow the `offline_access` scope. Secrets must come from environment variables or a secret manager.
+
+Do not guess redirect URIs or use wildcard callback URLs. Use the exact callback URL shown by the MCP client product. Set `auth.client.mcp.resource` even when only Claude is enabled, so Claude's access tokens also receive the MCP audience. The existing `auth.client.web` configuration remains unchanged.
