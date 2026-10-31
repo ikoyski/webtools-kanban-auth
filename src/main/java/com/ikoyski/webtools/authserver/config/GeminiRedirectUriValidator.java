@@ -10,6 +10,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationContext;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,12 +24,19 @@ public final class GeminiRedirectUriValidator {
     }
 
     public void accept(OAuth2AuthorizationCodeRequestAuthenticationContext context) {
-        String redirectUri = context.getAuthentication().getRedirectUri();
-        if (!isValidRedirectUri(redirectUri, resourceHostSlug)) {
-            OAuth2Error error = new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST,
-                    "Invalid Gemini redirect URI", null);
-            throw new OAuth2AuthorizationCodeRequestAuthenticationException(error, null);
+        if (!(context.getAuthentication() instanceof OAuth2AuthorizationCodeRequestAuthenticationToken authentication)) {
+            throw invalidRedirectUri();
         }
+        String redirectUri = authentication.getRedirectUri();
+        if (!isValidRedirectUri(redirectUri, resourceHostSlug)) {
+            throw invalidRedirectUri();
+        }
+    }
+
+    private static OAuth2AuthorizationCodeRequestAuthenticationException invalidRedirectUri() {
+        OAuth2Error error = new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST,
+                "Invalid Gemini redirect URI", null);
+        return new OAuth2AuthorizationCodeRequestAuthenticationException(error, null);
     }
 
     static boolean isValidRedirectUri(String redirectUri, String expectedResourceHostSlug) {
