@@ -51,5 +51,4 @@ public class IdentityNormalizer {
     private static String firstNonBlank(String first, String fallback) {
         return first == null || first.isBlank() ? fallback : first;
     }
-    }
 }
