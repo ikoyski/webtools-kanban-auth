@@ -82,12 +82,22 @@ public class AuthorizationServerConfig {
             }
 
             if (accessToken) {
-                Object resource = context.getRegisteredClient().getClientSettings().getSetting(ClientSeeder.RESOURCE_URI_SETTING);
+                Object resource = context.getRegisteredClient().getClientSettings()
+                        .getSetting(ClientSeeder.RESOURCE_URI_SETTING);
                 if (!(resource instanceof String)) {
-                    resource = context.getRegisteredClient().getClientSettings().getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
+                    resource = context.getRegisteredClient().getClientSettings()
+                            .getSetting(ClientSeeder.MCP_RESOURCE_SETTING);
                 }
                 if (resource instanceof String resourceUri && !resourceUri.isBlank()) {
-                    context.getClaims().audience(List.of(resourceUri));
+                    List<String> audiences = new java.util.ArrayList<>();
+                    audiences.add(resourceUri);
+                    Object additionalResource = context.getRegisteredClient().getClientSettings()
+                            .getSetting(ClientSeeder.MCP_BACKEND_RESOURCE_SETTING);
+                    if (additionalResource instanceof String additionalUri && !additionalUri.isBlank()
+                            && !audiences.contains(additionalUri)) {
+                        audiences.add(additionalUri);
+                    }
+                    context.getClaims().audience(audiences);
                 }
                 // uid remains for compatibility with existing gateways; it is now the central identity ID.
                 context.getClaims().claim("uid", user.id()).claim("email", user.email());
