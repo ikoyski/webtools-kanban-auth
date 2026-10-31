@@ -46,13 +46,13 @@ Clients are seeded/upserted by `ClientSeeder` at application startup from Config
 
 MCP clients are assigned the configured resource URI through a custom registered-client setting. The access-token customizer copies that URI into the access token's `aud` claim. The browser client does not receive this MCP audience.
 
-Optional ChatGPT and Gemini clients are seeded only when their client ID and at least one redirect URI are configured. A configured secret enables confidential-client authentication and rotating refresh tokens where supported by the client configuration. Public ChatGPT/Gemini clients do not receive refresh-token grants. Provider behavior and supported grants must be verified against the exact product integration.
+Optional ChatGPT is seeded only when its client ID and at least one redirect URI are configured. Gemini is seeded when its client ID and MCP resource are configured; its redirect-uris list may be empty because Gemini supplies a user-bound callback at authorization time. A configured secret enables confidential-client authentication and rotating refresh tokens where supported by the client configuration. Public ChatGPT/Gemini clients do not receive refresh-token grants. Provider behavior and supported grants must be verified against the exact product integration.
 
 ### Redirect URI rules
 
 - Register exact redirect URIs supplied by the OAuth client product. Never use wildcards.
 - For ChatGPT, use the exact callback URL shown in the connector setup UI. Depending on the integration flow, this may be a callback-specific URL rather than the stable `/connector_platform_oauth_redirect` URI. The server's authorization-response issuer-identification behavior must also match the callback requirements.
-- The configured Gemini callback is specific to the Gemini/Vertex AI integration that supplied it. Do not assume it applies to consumer Gemini, Gemini CLI or every Google AI product.
+- Gemini MCP uses a per-user callback under `https://oauth-redirect.googleusercontent.com/r/`. The auth server accepts only the Google redirect host and a `user_bound_custom-mcp-...` path whose final resource-host slug matches the configured MCP resource host. No per-user callback is stored in Config Server. This rule is limited to the Gemini client; every other client retains exact redirect URI matching.
 - Test the complete authorization-code flow with each product before enabling it for users.
 
 ## Config Server properties
@@ -125,7 +125,7 @@ The service is deployed separately from the API gateway. Restrict and rate-limit
 
 - Keep the Kanban backend as the source of truth for Kanban users.
 - Never log access tokens, client secrets, private keys or backend internal credentials.
-- Keep redirect URI matching exact.
+- Keep redirect URI matching exact for all clients except the narrowly validated Gemini user-bound callback. Never introduce wildcard matching.
 - Preserve PKCE for public and confidential authorization-code clients.
 - Ensure only intended MCP clients receive the MCP resource audience.
 - Keep client seeding idempotent and config-driven.
