@@ -28,6 +28,28 @@ public class IdentityNormalizer {
                     oidc.getFullName(),
                     oidc.getPicture());
         }
+        if ("github".equals(registrationId)) {
+            String subject = attribute(user, "id");
+            String email = attribute(user, "email");
+            String displayName = firstNonBlank(attribute(user, "name"), attribute(user, "login"));
+            return new FederatedIdentity(
+                    "GITHUB",
+                    subject,
+                    email,
+                    Boolean.TRUE.equals(user.getAttribute("email_verified")),
+                    displayName,
+                    attribute(user, "avatar_url"));
+        }
         throw new IllegalArgumentException("Unsupported identity provider: " + registrationId);
+    }
+
+    private static String attribute(OAuth2User user, String name) {
+        Object value = user.getAttributes().get(name);
+        return value == null ? null : value.toString();
+    }
+
+    private static String firstNonBlank(String first, String fallback) {
+        return first == null || first.isBlank() ? fallback : first;
+    }
     }
 }
