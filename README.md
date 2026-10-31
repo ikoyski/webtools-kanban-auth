@@ -1,6 +1,6 @@
 # WebTools Kanban Authorization Server
 
-Spring Authorization Server built with Spring Boot 3.4.2 and Java 21. It authenticates people through configured identity providers (currently Google) and issues OAuth 2.0 access tokens to registered clients, including Claude and optional MCP integrations such as ChatGPT and Gemini, as well as the Kanban web client.
+Spring Authorization Server built with Spring Boot 3.4.2 and Java 21. It authenticates people through configured identity providers (currently Google and GitHub) and issues OAuth 2.0 access tokens to registered clients, including Claude and optional MCP integrations such as ChatGPT and Gemini, as well as the Kanban web client.
 
 The authorization server does not own Kanban user records or passwords. After federated sign-in, it asks the Kanban backend to resolve the external identity to a Kanban user.
 
@@ -59,6 +59,8 @@ Optional ChatGPT is seeded only when its client ID and at least one redirect URI
 
 The authorization server expects its issuer, database, federated-login provider, backend integration, signing-key paths and client registrations to be supplied through external configuration.
 
+For GitHub sign-in, the Config Server provides the `spring.security.oauth2.client.registration.github` properties (`client-id`, `client-secret`, and scopes `read:user`, `user:email`). Keep the OAuth App secret in the private configuration/secret store, not in the frontend repository.
+
 Representative MCP client configuration:
 
 ```yaml
@@ -93,6 +95,18 @@ https://auth.ikoyski.top/login/oauth2/code/google
 ```
 
 Configure the required OpenID Connect scopes (`openid`, `email`, `profile`) and publish/authorize the consent configuration for the intended users. Use a dedicated provider client for this server.
+
+## GitHub identity provider setup
+
+Create a GitHub OAuth App and configure its callback URL as:
+
+```text
+https://auth.ikoyski.top/login/oauth2/code/github
+```
+
+The Config Server registration uses the GitHub OAuth App's client ID and client secret with the `read:user` and `user:email` scopes. Spring Security loads the GitHub profile, and `GitHubOAuth2UserService` calls `GET https://api.github.com/user/emails` to select the primary email only when GitHub marks it as verified. The numeric GitHub account ID is the stable identity subject; the mutable GitHub login name and email are not used as identifiers.
+
+The auth server must have the exact callback URL registered in the GitHub OAuth App. Do not request repository scopes: Kanban sign-in only needs the user's profile and verified email address.
 
 ## Signing key setup
 

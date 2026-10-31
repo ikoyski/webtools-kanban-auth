@@ -29,7 +29,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 /**
- * Runs after the identity provider (Google) has authenticated the person. It asks the backend which
+ * Runs after the configured identity provider has authenticated the person. It asks the backend which
  * Kanban user that identity is (creating it on first sign-in) and then REPLACES the provider's
  * authentication with a plain one whose principal name is the Kanban user id. That keeps the stored
  * authorization small and serializable, and makes the token "sub" the user id.
@@ -77,7 +77,7 @@ public class FederatedLoginSuccessHandler implements AuthenticationSuccessHandle
         switch (result.status()) {
             case OK -> signIn(request, response, result.user());
             case EMAIL_NOT_VERIFIED -> reject(request, response, 403,
-                    "Your Google account has not verified its email address, so it cannot be used to sign in.");
+                    "Your account's email address has not been verified, so it cannot be used to sign in.");
             case EMAIL_IN_USE -> reject(request, response, 409,
                     "An account with this email already exists under a different sign-in method. "
                             + "Sign in the way you did originally.");

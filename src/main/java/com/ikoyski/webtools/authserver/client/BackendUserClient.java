@@ -13,7 +13,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Talks to the kanban backend's INTERNAL identity API. The backend owns the users: this server
- * only proves who someone is (via Google) and asks the backend which user that is.
+ * only proves who someone is (via a configured identity provider) and asks the backend which user that is.
  *
  *   POST /internal/v1/users/federated  {provider, subject, email, emailVerified, displayName, avatarUrl}
  *        -> 200 {id, email} | 400 | 403 email_not_verified | 409 email_in_use

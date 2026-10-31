@@ -29,6 +29,16 @@ Current client types include:
 
 ChatGPT registration is optional and requires a client ID plus at least one exact redirect URI. Gemini registration is optional and requires a client ID plus the configured MCP resource; its redirect URI list may be empty because Gemini generates a per-user callback. PKCE is required for both. A configured client secret makes the client confidential and enables client authentication; public clients use no client authentication and do not receive refresh-token grants. Keep provider-specific behavior aligned with the actual integration product.
 
+## Federated identity providers
+
+Currently enabled: Google (OIDC) and GitHub (OAuth 2.0).
+
+- Google identity normalization uses the OIDC subject and the provider's `email_verified` claim.
+- GitHub is a plain OAuth 2.0 provider. `GitHubOAuth2UserService` loads the profile and fetches `/user/emails` with the `user:email` scope. Accept only the email GitHub marks both `primary` and `verified`.
+- Use the numeric GitHub account `id` as the stable subject. Never use the mutable GitHub login name or email as the identity key.
+- The backend's `InternalUserService.ALLOWED_PROVIDERS` must allow each provider. Never merge a new provider identity into an existing account just because the emails match.
+- GitHub callback: `https://auth.ikoyski.top/login/oauth2/code/github`. Keep it exact in the GitHub OAuth App settings.
+
 ## MCP resource audience
 
 The MCP resource URI is configured under `auth.client.mcp.resource`. `ClientSeeder` stores it as a custom registered-client setting for MCP clients. The access-token customizer adds this configured URI to the JWT `aud` claim for those clients. The web client must not receive the MCP audience.
@@ -53,6 +63,7 @@ The MCP audience must exactly match the MCP service's configured `security.oauth
 - `AuthorizationServerConfig` — authorization server components and JWT access-token customization.
 - `FederatedLoginSuccessHandler` — federated login completion and Kanban user resolution.
 - `IdentityNormalizer` — provider identity normalization.
+- `GitHubOAuth2UserService` — GitHub profile loading and verified-primary-email resolution.
 - `InternalUserService` — backend user lookup/provisioning integration.
 - `src/main/resources` — application and Config Server configuration.
 - `db/migration` — Flyway schema migrations.
