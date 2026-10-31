@@ -52,7 +52,7 @@ Optional ChatGPT is seeded only when its client ID and at least one redirect URI
 
 - Register exact redirect URIs supplied by the OAuth client product. Never use wildcards.
 - For ChatGPT, use the exact callback URL shown in the connector setup UI. Depending on the integration flow, this may be a callback-specific URL rather than the stable `/connector_platform_oauth_redirect` URI. The server's authorization-response issuer-identification behavior must also match the callback requirements.
-- Gemini MCP uses a per-user callback under `https://oauth-redirect.googleusercontent.com/r/`. The auth server accepts only the Google redirect host and a `user_bound_custom-mcp-...` path whose final resource-host slug matches the configured MCP resource host. No per-user callback is stored in Config Server. This rule is limited to the Gemini client; every other client retains exact redirect URI matching.
+- Gemini MCP uses a per-user callback under `https://oauth-redirect.googleusercontent.com/r/`. The auth server accepts only the Google redirect host and a `user_bound_custom-mcp-...` path whose final resource-host slug matches the configured MCP resource host. No per-user callback is stored in Config Server. The client seeder stores a reserved placeholder URI only because Spring requires a redirect URI on authorization-code client registrations; the Gemini validator never accepts that placeholder. This rule is limited to the Gemini client; every other client retains exact redirect URI matching.
 - Test the complete authorization-code flow with each product before enabling it for users.
 
 ## Config Server properties
@@ -77,8 +77,7 @@ auth:
     gemini:
       client-id: kanban-gemini
       client-secret: ${AUTH_GEMINI_CLIENT_SECRET:}
-      redirect-uris:
-        - ${GEMINI_OAUTH_REDIRECT_URI}
+      redirect-uris: [] # Gemini supplies a per-user callback; validated by the auth server
 ```
 
 The MCP resource URI must match the audience expected by the MCP resource server and the gateway's protected-resource configuration. It is a configured resource binding; the current implementation does not dynamically validate arbitrary RFC 8707 `resource` request parameters. Do not describe this as full dynamic RFC 8707 resource-indicator support.
