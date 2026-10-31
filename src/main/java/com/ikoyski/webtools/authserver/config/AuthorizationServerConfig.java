@@ -57,8 +57,10 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * Access tokens carry the stable central identity ID in the compatibility uid claim. Each configured
-     * resource client receives only its own audience. OIDC ID tokens carry standard profile claims.
+     * Access tokens carry the stable central identity ID in the compatibility uid claim. First-party app
+     * clients receive their own resource audience; Kanban MCP clients additionally receive the Kanban API
+     * audience because the MCP service forwards the delegated token to that API. OIDC ID tokens carry scoped
+     * standard profile claims.
      */
     @Bean
     public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(CentralIdentityService identities) {
